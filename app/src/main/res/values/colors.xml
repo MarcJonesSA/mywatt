@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark ride-screen palette. -->
+    <color name="background">#0D0F14</color>
+    <color name="surface">#161A22</color>
+    <color name="surface_variant">#1E2430</color>
+    <color name="outline">#2A3140</color>
+
+    <color name="text_primary">#F2F5FA</color>
+    <color name="text_secondary">#8A94A6</color>
+
+    <color name="gauge_track">#151A23</color>
+    <color name="gauge_tick">#4A5468</color>
+    <color name="needle">#F2F5FA</color>
+
+    <color name="accent">#2E7BFF</color>
+    <color name="status_connected">#22C55E</color>
+    <color name="status_idle">#4A5468</color>
+
+    <!-- Training zones. -->
+    <color name="zone_1">#2E7BFF</color>
+    <color name="zone_2">#22C55E</color>
+    <color name="zone_3">#A3E635</color>
+    <color name="zone_4">#FACC15</color>
+    <color name="zone_5">#F97316</color>
+    <color name="zone_6">#EF4444</color>
+</resources>
