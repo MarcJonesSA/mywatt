@@ -1,5 +1,15 @@
 package com.mywatt.app.bluetooth
 
+/*
+ * GEAR — NOT from here
+ *
+ * Tested on the bike 2026-10-24: the Wattbike Atom never fills the Indoor Bike Data (0x2AD2)
+ * field C6 "Resistance Level" (flag bit 5, sint16), so it is useless for gear. It is still
+ * decoded below as [IndoorBikeData.resistanceLevel] for completeness and the unit tests, but
+ * nothing displays or logs it. The gear comes from the Wattbike custom service instead; see
+ * [WattbikeGearParser]. The Fitness Machine Control Point (0x2AD9) is NOT read or written.
+ */
+
 /**
  * Decoded contents of an FTMS Indoor Bike Data notification (characteristic 0x2AD2).
  *

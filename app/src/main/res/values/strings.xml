@@ -11,10 +11,14 @@
     <string name="label_elapsed">TIME</string>
 
     <string name="no_reading">--</string>
+    <string name="gear_value">Gear %1$d</string>
+    <string name="gear_unknown">Gear --</string>
 
     <string name="action_connect">Connect bike</string>
     <string name="action_searching">Searching…</string>
     <string name="action_disconnect">Disconnect</string>
+    <string name="action_share_log">Share ride log</string>
+    <string name="share_log_none">No ride log recorded yet</string>
 
     <string name="status_idle">Not connected</string>
     <string name="status_scanning">Scanning for your Wattbike…</string>
@@ -30,6 +34,8 @@
     <string name="ftp_dialog_save">Save</string>
     <string name="ftp_dialog_cancel">Cancel</string>
     <string name="ftp_invalid">Enter an FTP between %1$d and %2$d watts</string>
+    <string name="smoothing_hint">Power smoothing</string>
+    <string name="smoothing_invalid">Enter a smoothing window between %1$d and %2$d seconds</string>
 
     <string name="picker_title">Choose your trainer</string>
     <string name="permission_required">MyWatt needs Bluetooth permission to find your bike</string>

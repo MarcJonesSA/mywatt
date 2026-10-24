@@ -21,6 +21,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.mywatt.app.R
+import com.mywatt.app.data.DiscoveryLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,6 +78,16 @@ class BluetoothManager(context: Context) {
     private val _liveSample = MutableStateFlow<LiveSample?>(null)
     val liveSample: StateFlow<LiveSample?> = _liveSample.asStateFlow()
 
+    /**
+     * Current gear from the Wattbike custom characteristic. Starts every connection as
+     * gear 7 unconfirmed (the Atom's session default) and becomes confirmed on the first
+     * notification; see [GearState]. Only changes on a shift, so it is not subject to the
+     * stale-sample rule. Reset when the connection drops.
+     */
+    private val gearState = GearState()
+    private val _gear = MutableStateFlow(gearState.reading)
+    val gear: StateFlow<GearReading> = _gear.asStateFlow()
+
     private var gatt: BluetoothGatt? = null
     private var scanning = false
     private var connectAttempt = 0
@@ -89,6 +100,16 @@ class BluetoothManager(context: Context) {
     private var preferredName: String = DEFAULT_DEVICE_NAME
 
     private val discovered = LinkedHashMap<String, TrainerDevice>()
+
+    /** GATT dump plus every non-Indoor-Bike-Data notification, one file per connection. */
+    private var discoveryLog: DiscoveryLog? = null
+    private var discoveryStartedAtMs: Long = 0L
+
+    /**
+     * Characteristics still waiting for their CCCD write. Android only allows one GATT
+     * operation in flight, so they are enabled one at a time from onDescriptorWrite.
+     */
+    private val subscribeQueue = ArrayDeque<BluetoothGattCharacteristic>()
 
     // ---------------------------------------------------------------- scanning
 
@@ -229,7 +250,13 @@ class BluetoothManager(context: Context) {
         gatt?.let { runCatching { it.disconnect() } }
         closeGatt()
         _liveSample.value = null
+        resetGear()
         _connectionState.value = ConnectionState.Idle
+    }
+
+    private fun resetGear() {
+        gearState.reset()
+        _gear.value = gearState.reading
     }
 
     /** Releases everything. Call from Activity.onDestroy. */
@@ -240,6 +267,9 @@ class BluetoothManager(context: Context) {
     private fun closeGatt() {
         gatt?.let { runCatching { it.close() } }
         gatt = null
+        subscribeQueue.clear()
+        discoveryLog?.close()
+        discoveryLog = null
     }
 
     private val reconnectRunnable = Runnable {
@@ -262,6 +292,7 @@ class BluetoothManager(context: Context) {
                 newState == BluetoothProfile.STATE_DISCONNECTED -> {
                     closeGatt()
                     _liveSample.value = null
+                    resetGear()
                     handler.post { handleDisconnect(status) }
                 }
             }
@@ -288,8 +319,38 @@ class BluetoothManager(context: Context) {
                 runCatching { gatt.disconnect() }
                 return
             }
-            enableNotifications(gatt, characteristic)
+            writeDiscovery(gatt)
+            resetGear()
+
+            // Order matters: Indoor Bike Data first so the ride screen comes alive straight
+            // away, then gear notifications, then everything else purely for the discovery
+            // log. The gear characteristic is deliberately NOT read on connect: the Atom
+            // returns a stale value there, and it never pushes its gear until the first shift.
+            subscribeQueue.clear()
+            subscribeQueue.addLast(characteristic)
+            val gearCharacteristic = gatt.getService(WATTBIKE_SERVICE)?.getCharacteristic(WATTBIKE_GEAR)
+            if (gearCharacteristic != null) {
+                subscribeQueue.addLast(gearCharacteristic)
+            } else {
+                Log.w(TAG, "No Wattbike gear characteristic on $preferredName")
+            }
+            gatt.services.asSequence()
+                .flatMap { it.characteristics.asSequence() }
+                .filter { it.uuid != INDOOR_BIKE_DATA && it.uuid != WATTBIKE_GEAR && it.supportsNotify() }
+                .forEach { subscribeQueue.addLast(it) }
+            subscribeNext(gatt)
             _connectionState.value = ConnectionState.Connected(preferredName)
+        }
+
+        override fun onDescriptorWrite(
+            gatt: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int,
+        ) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.w(TAG, "CCCD write failed (${status}) for ${descriptor.characteristic.uuid}")
+            }
+            subscribeNext(gatt)
         }
 
         // API 33+ delivers the payload as an argument; below that it lives on the characteristic.
@@ -298,7 +359,7 @@ class BluetoothManager(context: Context) {
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
         ) {
-            if (characteristic.uuid == INDOOR_BIKE_DATA) publish(value)
+            onNotification(characteristic, value)
         }
 
         @Deprecated("Superseded by the three-argument overload on API 33+")
@@ -308,7 +369,71 @@ class BluetoothManager(context: Context) {
             characteristic: BluetoothGattCharacteristic,
         ) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return
-            if (characteristic.uuid == INDOOR_BIKE_DATA) publish(characteristic.value ?: return)
+            onNotification(characteristic, characteristic.value ?: return)
+        }
+    }
+
+    private fun onNotification(characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+        if (characteristic.uuid == INDOOR_BIKE_DATA) {
+            publish(value)
+            return
+        }
+        // Everything that is not Indoor Bike Data still goes to the discovery log, gear
+        // included, so a ride's shifts can be checked against the CSV afterwards.
+        val elapsed = (SystemClock.elapsedRealtime() - discoveryStartedAtMs) / 1000L
+        discoveryLog?.notification(elapsed, characteristic.uuid.toString(), value)
+        if (characteristic.uuid == WATTBIKE_GEAR && gearState.onNotification(value)) {
+            _gear.value = gearState.reading
+        }
+    }
+
+    // --------------------------------------------------------------- discovery
+
+    /** Dumps every service and characteristic to a fresh discovery file. */
+    private fun writeDiscovery(gatt: BluetoothGatt) {
+        discoveryLog?.close()
+        val log = runCatching { DiscoveryLog.start(appContext) }.getOrNull() ?: return
+        discoveryLog = log
+        discoveryStartedAtMs = SystemClock.elapsedRealtime()
+
+        log.line("# MyWatt GATT discovery: $preferredName (${preferredAddress ?: "?"})")
+        log.line("# service_uuid,characteristic_uuid,properties")
+        gatt.services.forEach { service ->
+            service.characteristics.forEach { ch ->
+                log.line("${service.uuid},${ch.uuid},${describeProperties(ch.properties)}")
+            }
+        }
+        log.line("# notifications (not Indoor Bike Data): elapsed_s,characteristic_uuid,hex")
+    }
+
+    private fun describeProperties(properties: Int): String {
+        val names = ArrayList<String>(5)
+        if (properties and BluetoothGattCharacteristic.PROPERTY_READ != 0) names += "read"
+        if (properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) names += "write"
+        if (properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) {
+            names += "write-no-response"
+        }
+        if (properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) names += "notify"
+        if (properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) names += "indicate"
+        return names.joinToString("|").ifEmpty { "none" }
+    }
+
+    private fun BluetoothGattCharacteristic.supportsNotify(): Boolean =
+        properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
+
+    /**
+     * Enables notifications on the next queued characteristic. Called again from
+     * onDescriptorWrite; if a write cannot even be started, moves straight on.
+     *
+     * TODO: indicate-only characteristics (e.g. the FTMS Control Point 0x2AD9) are listed
+     * in the discovery file but not subscribed; add ENABLE_INDICATION_VALUE if needed.
+     * TODO: b4cc1225-bc02-4cae-adb9-1217ad2860d1 (read|write) is the likely gear-command
+     * characteristic. Deliberately never written to; nothing here writes to the bike.
+     */
+    private fun subscribeNext(gatt: BluetoothGatt) {
+        while (true) {
+            val characteristic = subscribeQueue.removeFirstOrNull() ?: return
+            if (enableNotifications(gatt, characteristic)) return
         }
     }
 
@@ -336,20 +461,21 @@ class BluetoothManager(context: Context) {
         _liveSample.value = LiveSample(parsed, SystemClock.elapsedRealtime())
     }
 
+    /** Returns true if a CCCD write was started, meaning onDescriptorWrite will follow. */
     private fun enableNotifications(
         gatt: BluetoothGatt,
         characteristic: BluetoothGattCharacteristic,
-    ) {
+    ): Boolean {
         if (!gatt.setCharacteristicNotification(characteristic, true)) {
             Log.w(TAG, "setCharacteristicNotification refused for ${characteristic.uuid}")
         }
         val cccd = characteristic.getDescriptor(CCCD) ?: run {
-            Log.w(TAG, "Indoor Bike Data has no CCCD descriptor")
-            return
+            Log.w(TAG, "${characteristic.uuid} has no CCCD descriptor")
+            return false
         }
         val enable = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeDescriptor(cccd, enable)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt.writeDescriptor(cccd, enable) == BluetoothGatt.GATT_SUCCESS
         } else {
             @Suppress("DEPRECATION")
             run {
@@ -375,6 +501,8 @@ class BluetoothManager(context: Context) {
         private val FTMS_SERVICE: UUID = UUID.fromString(FTMSParser.FTMS_SERVICE_UUID)
         private val INDOOR_BIKE_DATA: UUID = UUID.fromString(FTMSParser.INDOOR_BIKE_DATA_UUID)
         private val CCCD: UUID = UUID.fromString(FTMSParser.CCCD_UUID)
+        private val WATTBIKE_SERVICE: UUID = UUID.fromString(WattbikeGearParser.WATTBIKE_SERVICE_UUID)
+        private val WATTBIKE_GEAR: UUID = UUID.fromString(WattbikeGearParser.GEAR_UUID)
 
         /** Runtime permissions this app needs on the running Android version. */
         fun requiredPermissions(): Array<String> =

@@ -57,6 +57,18 @@ class FTMSParserTest {
     }
 
     @Test
+    fun `reads the resistance level as a signed value`() {
+        // Flags 0x0061: More Data set (no speed), resistance level, instantaneous power.
+        val packet = Packet().u16(0x0061).u16(12).u16(250).bytes()
+        val data = FTMSParser.parseIndoorBikeData(packet)!!
+        assertEquals(12, data.resistanceLevel)
+        assertEquals(250, data.instantaneousPowerWatts)
+
+        val negative = Packet().u16(0x0021).u16(0xFFFE).bytes()
+        assertEquals(-2, FTMSParser.parseIndoorBikeData(negative)!!.resistanceLevel)
+    }
+
+    @Test
     fun `finds power in a packet carrying every optional field`() {
         val packet = Packet()
             .u16(0x1FFE)              // every flag set, More Data clear
@@ -79,6 +91,7 @@ class FTMSParserTest {
 
         assertEquals(312, data.instantaneousPowerWatts)
         assertEquals(280, data.averagePowerWatts)
+        assertEquals(7, data.resistanceLevel)
         assertEquals(95.0, data.instantaneousCadenceRpm!!, 0.001)
         assertEquals(12345, data.totalDistanceMetres)
         assertEquals(142, data.heartRateBpm)

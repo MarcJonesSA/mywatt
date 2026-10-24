@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Ride logs written by RideLog, shared read-only through the FileProvider. -->
+    <files-path
+        name="ride_logs"
+        path="ride_logs/" />
+</paths>
