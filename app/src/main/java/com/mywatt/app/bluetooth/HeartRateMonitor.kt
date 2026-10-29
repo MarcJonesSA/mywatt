@@ -95,7 +95,8 @@ class HeartRateMonitor(
         cancelRetry()
         _state.value = HeartRateState.Connecting(device.name)
 
-        closeGatt()
+        // Never two GATT objects for the same strap: anything still open goes first.
+        dropGatt()
         gatt = remote.connectGatt(
             appContext,
             /* autoConnect = */ false,
@@ -108,8 +109,7 @@ class HeartRateMonitor(
     fun disconnect() {
         disconnectRequested = true
         cancelRetry()
-        gatt?.let { runCatching { it.disconnect() } }
-        closeGatt()
+        dropGatt()
         _sample.value = null
         _state.value = HeartRateState.Idle
     }
@@ -124,11 +124,21 @@ class HeartRateMonitor(
         retryRunnable = null
     }
 
-    private fun closeGatt() {
+    /**
+     * The one way the strap GATT is ever let go of: disconnect() then close(), so neither
+     * the strap nor the Android stack is left holding a dead link. Safe to call with
+     * nothing open or with a link that has already dropped.
+     */
+    private fun dropGatt() {
         val hadGatt = gatt != null
-        gatt?.let { runCatching { it.close() } }
+        gatt?.let { release(it) }
         gatt = null
         if (hadGatt) listener.onStrapClosed()
+    }
+
+    private fun release(g: BluetoothGatt) {
+        runCatching { g.disconnect() }
+        runCatching { g.close() }
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -143,7 +153,13 @@ class HeartRateMonitor(
 
                 newState == BluetoothProfile.STATE_DISCONNECTED -> {
                     handler.post {
-                        closeGatt()
+                        if (gatt !== this@HeartRateMonitor.gatt) {
+                            // A late callback from a GATT already replaced: just make sure
+                            // it is closed, and leave the current connection alone.
+                            release(gatt)
+                            return@post
+                        }
+                        dropGatt()
                         _sample.value = null
                         handleDisconnect(status)
                     }
@@ -154,14 +170,14 @@ class HeartRateMonitor(
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "Strap service discovery failed ($status)")
-                runCatching { gatt.disconnect() }
+                failConnection()
                 return
             }
             val characteristic = gatt.getService(HEART_RATE_SERVICE)
                 ?.getCharacteristic(HEART_RATE_MEASUREMENT)
             if (characteristic == null) {
                 Log.w(TAG, "$preferredName has no Heart Rate Measurement characteristic")
-                runCatching { gatt.disconnect() }
+                failConnection()
                 return
             }
             handler.post {
@@ -197,6 +213,16 @@ class HeartRateMonitor(
     private fun publish(payload: ByteArray) {
         val parsed = HeartRateParser.parse(payload) ?: return
         _sample.value = HeartRateSample(parsed, SystemClock.elapsedRealtime())
+    }
+
+    /** The strap is not usable: drop it cleanly and stop trying. */
+    private fun failConnection() {
+        handler.post {
+            disconnectRequested = true
+            dropGatt()
+            _sample.value = null
+            _state.value = HeartRateState.Idle
+        }
     }
 
     private fun handleDisconnect(status: Int) {

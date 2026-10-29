@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
     private var pickerDevices: List<ScannedDevice> = emptyList()
     private val pickerRows = ArrayList<View>()
 
-    /** 60 s heart-rate recovery after each effort, fed from the 1 Hz ride-log loop. */
+    /** 60 s and 120 s heart-rate recovery after each effort, fed from the 1 Hz ride-log loop. */
     private val recovery = HeartRateRecovery()
 
     /**
@@ -257,6 +257,9 @@ class MainActivity : AppCompatActivity() {
                 getString(R.string.status_reconnecting, state.deviceName)
             is ConnectionState.Error -> state.message
         }
+        val hint = (state as? ConnectionState.Error)?.hint
+        binding.statusHint.text = hint ?: ""
+        binding.statusHint.visibility = if (hint != null) View.VISIBLE else View.GONE
         binding.statusText.setTextColor(
             ContextCompat.getColor(
                 this,
@@ -438,10 +441,7 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        // Latest completed 60 s recovery; stays on screen until the next one replaces it.
-        binding.recoveryValue.text = recovery.latest.value
-            ?.let { getString(R.string.recovery_value, formatRecovery(it.hrr60)) }
-            ?: getString(R.string.recovery_unknown)
+        binding.recoveryValue.text = recoveryText()
 
         binding.cadenceValue.text = data?.instantaneousCadenceRpm
             ?.roundToInt()?.toString() ?: getString(R.string.no_reading)
@@ -482,9 +482,31 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Live during the first 60 s of a window ("Recovery · HR 146 · 23 s"), then the 60 s
+     * drop while the window runs on, then both drops once 120 s is in. Outside a window
+     * the last completed reading stays until the next effort replaces it.
+     */
+    private fun recoveryText(): String {
+        val progress = recovery.progress.value
+        val latest = recovery.latest.value
+        return when {
+            progress != null && progress.secondsSinceEnd < HeartRateRecovery.SHORT_WINDOW_SECONDS ->
+                getString(
+                    R.string.recovery_live,
+                    progress.hrBpm?.toString() ?: getString(R.string.no_reading),
+                    progress.secondsSinceEnd,
+                )
+            latest == null -> getString(R.string.recovery_unknown)
+            latest.hrr120 != null ->
+                getString(R.string.recovery_both, formatRecovery(latest.hrr60), formatRecovery(latest.hrr120))
+            else -> getString(R.string.recovery_value, formatRecovery(latest.hrr60))
+        }
+    }
+
     /** A drop of 13 bpm reads "-13"; the rare rise reads "+5". */
-    private fun formatRecovery(hrr60: Int): String =
-        if (hrr60 >= 0) "-$hrr60" else "+${-hrr60}"
+    private fun formatRecovery(drop: Int): String =
+        if (drop >= 0) "-$drop" else "+${-drop}"
 
     private fun formatElapsed(reportedSeconds: Int?): String {
         val seconds = reportedSeconds
@@ -530,12 +552,16 @@ class MainActivity : AppCompatActivity() {
                 val hr = currentHeartRate(now)
                 val rr = pendingRrMs.toList().also { pendingRrMs.clear() }
                 val elapsed = (now - startedAt) / 1000L
-                val hrr60 = recovery.onSecond(elapsed, hr?.bpm, smoothed)?.hrr60
+                // The engine hands back a result only on a completing second: at 60 s one
+                // without hrr120, at 120 s one with it. Each lands in its own column.
+                val completed = recovery.onSecond(elapsed, hr?.bpm, smoothed)
+                val hrr60 = completed?.takeIf { it.hrr120 == null }?.hrr60
+                val hrr120 = completed?.hrr120
                 withContext(Dispatchers.IO) {
                     runCatching {
                         log.append(
                             elapsed, raw, smoothed, cadence, gear?.gear, gear?.confirmed == true,
-                            hr?.bpm, rr, hrr60,
+                            hr?.bpm, rr, hrr60, hrr120,
                         )
                     }
                 }

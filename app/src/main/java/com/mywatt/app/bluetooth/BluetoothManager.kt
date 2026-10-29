@@ -54,7 +54,9 @@ sealed class ConnectionState {
     data class Connecting(val deviceName: String) : ConnectionState()
     data class Connected(val deviceName: String) : ConnectionState()
     data class Reconnecting(val deviceName: String) : ConnectionState()
-    data class Error(val message: String) : ConnectionState()
+
+    /** [hint] is an extra line of advice shown under the message, when there is one. */
+    data class Error(val message: String, val hint: String? = null) : ConnectionState()
 }
 
 /**
@@ -227,8 +229,12 @@ class BluetoothManager(context: Context) {
 
         if (gatt == null) {
             when {
-                trainers.isEmpty() -> _connectionState.value =
-                    ConnectionState.Error(appContext.getString(R.string.error_no_trainer))
+                // The scan has run its full SCAN_DURATION_MS without a bike: the Atom's own
+                // Bluetooth sometimes wedges and only a power cycle brings it back.
+                trainers.isEmpty() -> _connectionState.value = ConnectionState.Error(
+                    appContext.getString(R.string.error_no_trainer),
+                    hint = appContext.getString(R.string.hint_bike_power_cycle),
+                )
                 trainers.size == 1 -> connect(trainers.first())
                 else -> {
                     _connectionState.value = ConnectionState.DevicesFound(trainers)
@@ -330,7 +336,8 @@ class BluetoothManager(context: Context) {
         disconnectRequested = false
         _connectionState.value = ConnectionState.Connecting(device.name)
 
-        closeGatt()
+        // Never two GATT objects for the same bike: anything still open goes first.
+        dropGatt()
         gatt = remote.connectGatt(
             appContext,
             /* autoConnect = */ false,
@@ -347,8 +354,7 @@ class BluetoothManager(context: Context) {
         retryConnectRunnable?.let { handler.removeCallbacks(it) }
         retryConnectRunnable = null
         _pendingChoices.value = emptyList()
-        gatt?.let { runCatching { it.disconnect() } }
-        closeGatt()
+        dropGatt()
         _liveSample.value = null
         resetGear()
         _connectionState.value = ConnectionState.Idle
@@ -365,11 +371,22 @@ class BluetoothManager(context: Context) {
         disconnect()
     }
 
-    private fun closeGatt() {
-        gatt?.let { runCatching { it.close() } }
+    /**
+     * The one way a trainer GATT is ever let go of: disconnect() to tell the bike, then
+     * close() to free the Android client slot. Skipping either leaks a connection the Atom
+     * keeps counting, and after a few it refuses new ones until it is power-cycled. Safe
+     * to call with nothing open or with a link that has already dropped.
+     */
+    private fun dropGatt() {
+        gatt?.let { release(it) }
         gatt = null
         subscribeQueue.clear()
         closeDiscoveryLogIfIdle()
+    }
+
+    private fun release(g: BluetoothGatt) {
+        runCatching { g.disconnect() }
+        runCatching { g.close() }
     }
 
     private val reconnectRunnable = Runnable {
@@ -391,7 +408,13 @@ class BluetoothManager(context: Context) {
 
                 newState == BluetoothProfile.STATE_DISCONNECTED -> {
                     handler.post {
-                        closeGatt()
+                        if (gatt !== this@BluetoothManager.gatt) {
+                            // A late callback from a GATT already replaced: just make sure
+                            // it is closed, and leave the current connection alone.
+                            release(gatt)
+                            return@post
+                        }
+                        dropGatt()
                         _liveSample.value = null
                         resetGear()
                         handleDisconnect(status)
@@ -402,23 +425,17 @@ class BluetoothManager(context: Context) {
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                _connectionState.value = ConnectionState.Error(
-                    appContext.getString(R.string.error_discovery_failed, status)
-                )
+                failConnection(appContext.getString(R.string.error_discovery_failed, status))
                 return
             }
             val service = gatt.getService(FTMS_SERVICE)
             if (service == null) {
-                _connectionState.value =
-                    ConnectionState.Error(appContext.getString(R.string.error_no_ftms, preferredName))
-                runCatching { gatt.disconnect() }
+                failConnection(appContext.getString(R.string.error_no_ftms, preferredName))
                 return
             }
             val characteristic = service.getCharacteristic(INDOOR_BIKE_DATA)
             if (characteristic == null) {
-                _connectionState.value =
-                    ConnectionState.Error(appContext.getString(R.string.error_no_bike_data, preferredName))
-                runCatching { gatt.disconnect() }
+                failConnection(appContext.getString(R.string.error_no_bike_data, preferredName))
                 return
             }
             handler.post {
@@ -558,6 +575,17 @@ class BluetoothManager(context: Context) {
         }
     }
 
+    /** The bike is not usable: drop it cleanly, do not retry, and say why. */
+    private fun failConnection(message: String) {
+        handler.post {
+            disconnectRequested = true
+            dropGatt()
+            _liveSample.value = null
+            resetGear()
+            _connectionState.value = ConnectionState.Error(message)
+        }
+    }
+
     private fun handleDisconnect(status: Int) {
         if (disconnectRequested) {
             _connectionState.value = ConnectionState.Idle
@@ -609,7 +637,8 @@ class BluetoothManager(context: Context) {
     companion object {
         private const val TAG = "MyWattBluetooth"
 
-        private const val SCAN_DURATION_MS = 12_000L
+        /** Long enough that "no bike" really means no bike, not a slow advertiser. */
+        private const val SCAN_DURATION_MS = 20_000L
         private const val RECONNECT_DELAY_MS = 2_000L
         private const val MAX_CONNECT_ATTEMPTS = 3
         private const val DEFAULT_DEVICE_NAME = "Trainer"

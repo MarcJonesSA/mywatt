@@ -8,48 +8,52 @@ class RideLogTest {
     @Test
     fun `writes every column in header order`() {
         assertEquals(
-            "elapsed_s,raw_watts,smoothed_watts,cadence_rpm,gear,gear_confirmed,hr_bpm,rr_ms,hrr60",
+            "elapsed_s,raw_watts,smoothed_watts,cadence_rpm,gear,gear_confirmed,hr_bpm,rr_ms,hrr60,hrr120",
             RideLog.HEADER,
         )
         assertEquals(
-            "12,251,248,91,14,1,142,410 425,13",
-            RideLog.formatRow(12, 251, 248, 91, 14, true, 142, listOf(410, 425), 13),
+            "12,251,248,91,14,1,142,410 425,13,",
+            RideLog.formatRow(12, 251, 248, 91, 14, true, 142, listOf(410, 425), 13, null),
         )
     }
 
     @Test
     fun `leaves missing values as empty cells`() {
         assertEquals(
-            "0,,,,,0,,,",
-            RideLog.formatRow(0, null, null, null, null, false, null, emptyList(), null),
+            "0,,,,,0,,,,",
+            RideLog.formatRow(0, null, null, null, null, false, null, emptyList(), null, null),
         )
         assertEquals(
-            "5,200,,88,,0,,,",
-            RideLog.formatRow(5, 200, null, 88, null, false, null, emptyList(), null),
+            "5,200,,88,,0,,,,",
+            RideLog.formatRow(5, 200, null, 88, null, false, null, emptyList(), null, null),
         )
     }
 
     @Test
     fun `marks a remembered gear as unconfirmed`() {
         assertEquals(
-            "3,180,182,85,9,0,,,",
-            RideLog.formatRow(3, 180, 182, 85, 9, false, null, emptyList(), null),
+            "3,180,182,85,9,0,,,,",
+            RideLog.formatRow(3, 180, 182, 85, 9, false, null, emptyList(), null, null),
         )
     }
 
     @Test
     fun `writes heart rate without RR intervals as an empty rr cell`() {
         assertEquals(
-            "7,210,205,90,10,1,131,,",
-            RideLog.formatRow(7, 210, 205, 90, 10, true, 131, emptyList(), null),
+            "7,210,205,90,10,1,131,,,",
+            RideLog.formatRow(7, 210, 205, 90, 10, true, 131, emptyList(), null, null),
         )
     }
 
     @Test
-    fun `carries hrr60 only on the completing row`() {
+    fun `carries hrr60 and hrr120 only on their completing rows`() {
         assertEquals(
-            "194,85,85,80,7,1,70,,92",
-            RideLog.formatRow(194, 85, 85, 80, 7, true, 70, emptyList(), 92),
+            "194,85,85,80,7,1,70,,92,",
+            RideLog.formatRow(194, 85, 85, 80, 7, true, 70, emptyList(), 92, null),
+        )
+        assertEquals(
+            "254,85,85,80,7,1,70,,,92",
+            RideLog.formatRow(254, 85, 85, 80, 7, true, 70, emptyList(), null, 92),
         )
     }
 }

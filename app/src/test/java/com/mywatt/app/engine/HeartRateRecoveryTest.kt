@@ -34,29 +34,63 @@ class HeartRateRecoveryTest {
         Tick(max(hrFloor, 162 - 2 * i), 85)
     }
 
+    // Power drops at t=130 in every ride below; the end is confirmed after 5 low seconds,
+    // at t=134; the 60 s reading lands at t=194 and the 120 s reading at t=254.
+    private val effortEnd = 134L
+
     @Test
-    fun `measures one recovery after a sustained effort`() {
+    fun `measures 60 s and 120 s recovery after a sustained effort`() {
         val engine = HeartRateRecovery()
-        val results = run(engine, easy(60) + effort(70) + recovery(90))
+        val results = run(engine, easy(60) + effort(70) + recovery(130))
 
-        assertEquals(1, results.size)
-        val (second, result) = results.single()
+        assertEquals(2, results.size)
+        val (second60, at60) = results[0]
+        val (second120, at120) = results[1]
 
-        // Power drops at t=130; the end is confirmed after 5 low seconds, at t=134; the
-        // window closes 60 s later at t=194.
-        assertEquals(194L, second)
-        assertEquals(194L, result.elapsedAtEnd)
-        assertEquals(162, result.peakHr)
+        assertEquals(194L, second60)
+        assertEquals(effortEnd, at60.elapsedAtEnd)
+        assertEquals(162, at60.peakHr)
         // 64 s into the decline HR has hit the 70 bpm floor.
-        assertEquals(70, result.hrAt60)
-        assertEquals(92, result.hrr60)
-        assertEquals(result, engine.latest.value)
+        assertEquals(70, at60.hrAt60)
+        assertEquals(92, at60.hrr60)
+        assertNull(at60.hrr120)
+        assertNull(at60.hrAt120)
+
+        assertEquals(254L, second120)
+        assertEquals(at60.copy(hrAt120 = 70, hrr120 = 92), at120)
+        assertEquals(at120, engine.latest.value)
+        assertNull(engine.progress.value)
+    }
+
+    @Test
+    fun `peak is taken from up to 30 s after the effort ends`() {
+        val engine = HeartRateRecovery()
+        // After the legs stop at t=130 HR keeps climbing 1 bpm a second to 171 at t=154,
+        // 20 s after the confirmed end, then falls 1 bpm a second. A spike to 190 at t=170,
+        // 36 s after the end, is outside the peak window and must be ignored.
+        val late = List(130) { i ->
+            val hr = when {
+                i == 40 -> 190
+                i < 24 -> 147 + i
+                else -> max(70, 171 - (i - 24))
+            }
+            Tick(hr, 85)
+        }
+        val results = run(engine, easy(60) + effort(70) + late)
+
+        assertEquals(2, results.size)
+        val at120 = results[1].second
+        assertEquals(171, at120.peakHr)
+        assertEquals(131, at120.hrAt60)
+        assertEquals(40, at120.hrr60)
+        assertEquals(71, at120.hrAt120)
+        assertEquals(100, at120.hrr120)
     }
 
     @Test
     fun `an effort shorter than 30 s produces no result`() {
         val engine = HeartRateRecovery()
-        val results = run(engine, easy(60) + effort(25) + recovery(90))
+        val results = run(engine, easy(60) + effort(25) + recovery(130))
 
         assertEquals(0, results.size)
         assertNull(engine.latest.value)
@@ -70,13 +104,27 @@ class HeartRateRecoveryTest {
 
         assertEquals(0, results.size)
         assertNull(engine.latest.value)
+        assertNull(engine.progress.value)
+    }
+
+    @Test
+    fun `a new effort after 60 s keeps the 60 s reading but never gives a 120 s one`() {
+        val engine = HeartRateRecovery()
+        // Hard again at t=214, 80 s into the window, long enough to be detected.
+        val results = run(engine, easy(60) + effort(70) + recovery(84) + effort(70))
+
+        assertEquals(1, results.size)
+        val latest = engine.latest.value
+        assertNotNull(latest)
+        assertEquals(92, latest!!.hrr60)
+        assertNull(latest.hrr120)
     }
 
     @Test
     fun `more than 10 s of missing HR abandons the window`() {
         val engine = HeartRateRecovery()
         val gap = List(11) { Tick(null, 85) }
-        val results = run(engine, easy(60) + effort(70) + recovery(10) + gap + recovery(60))
+        val results = run(engine, easy(60) + effort(70) + recovery(10) + gap + recovery(120))
 
         assertEquals(0, results.size)
         assertNull(engine.latest.value)
@@ -93,11 +141,21 @@ class HeartRateRecoveryTest {
     }
 
     @Test
+    fun `progress counts the seconds since the effort ended`() {
+        val engine = HeartRateRecovery()
+        run(engine, easy(60) + effort(70) + recovery(30))
+
+        // Last tick is t=159, 25 s after the end at t=134, with HR 162 - 2*29.
+        assertEquals(RecoveryProgress(25, 104), engine.progress.value)
+    }
+
+    @Test
     fun `reset keeps the last result`() {
         val engine = HeartRateRecovery()
-        run(engine, easy(60) + effort(70) + recovery(90))
+        run(engine, easy(60) + effort(70) + recovery(130))
         val before = engine.latest.value
         engine.reset()
         assertEquals(before, engine.latest.value)
+        assertNull(engine.progress.value)
     }
 }

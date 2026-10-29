@@ -77,6 +77,19 @@
             android:textSize="14sp" />
     </LinearLayout>
 
+    <!-- Advice shown under the status when a scan finds no bike at all. -->
+    <TextView
+        android:id="@+id/statusHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="18dp"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
+        android:visibility="gone"
+        tools:text="@string/hint_bike_power_cycle"
+        tools:visibility="visible" />
+
     <!-- The rev counter. -->
     <com.mywatt.app.ui.RevCounterView
         android:id="@+id/revCounter"
@@ -112,7 +125,7 @@
         android:textStyle="bold"
         tools:text="HR 142" />
 
-    <!-- 60-second heart-rate recovery after the last effort. -->
+    <!-- Heart-rate recovery: live countdown during a window, then the 60 s / 120 s drops. -->
     <TextView
         android:id="@+id/recoveryValue"
         android:layout_width="wrap_content"
@@ -123,7 +136,7 @@
         android:text="@string/recovery_unknown"
         android:textColor="@color/text_secondary"
         android:textSize="18sp"
-        tools:text="Recovery -13 in 60 s" />
+        tools:text="Recovery -13 / -22" />
 
     <TextView
         android:id="@+id/zoneChip"
