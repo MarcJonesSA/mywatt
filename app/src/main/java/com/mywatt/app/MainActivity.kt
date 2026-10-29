@@ -22,8 +22,11 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.mywatt.app.bluetooth.BluetoothManager
 import com.mywatt.app.bluetooth.ConnectionState
+import com.mywatt.app.bluetooth.DeviceKind
 import com.mywatt.app.bluetooth.GearReading
-import com.mywatt.app.bluetooth.TrainerDevice
+import com.mywatt.app.bluetooth.HeartRateMeasurement
+import com.mywatt.app.bluetooth.HeartRateState
+import com.mywatt.app.bluetooth.ScannedDevice
 import com.mywatt.app.data.DiscoveryLog
 import com.mywatt.app.data.PowerSmoother
 import com.mywatt.app.data.PowerZones
@@ -64,6 +67,9 @@ class MainActivity : AppCompatActivity() {
     /** The CSV being written for the current connection, and the 1 Hz job feeding it. */
     private var rideLog: RideLog? = null
     private var rideLogJob: Job? = null
+
+    /** RR intervals received since the last CSV row was written. Main thread only. */
+    private val pendingRrMs = ArrayList<Int>()
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -106,8 +112,18 @@ class MainActivity : AppCompatActivity() {
         renderZone(null)
         observeConnection()
         observeLiveSamples()
+        observeHeartRate()
         observeRideLogging()
         startDisplayRefresh()
+
+        // Reconnect to the bike and strap from last time without a tap. First-run users
+        // (nothing remembered, or permissions not yet granted) still start from the button.
+        if (bluetooth.hasRememberedDevices() &&
+            bluetooth.hasPermissions() &&
+            bluetooth.isBluetoothEnabled()
+        ) {
+            beginConnect()
+        }
     }
 
     override fun onDestroy() {
@@ -149,6 +165,28 @@ class MainActivity : AppCompatActivity() {
                 bluetooth.connectionState.collect { state -> renderConnectionState(state) }
             }
         }
+        // The picker is driven separately from the trainer state, because it may be asking
+        // only about a strap while the bike is already connected.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                bluetooth.pendingChoices.collect { devices ->
+                    if (devices.isEmpty()) {
+                        devicePickerDialog?.dismiss()
+                    } else {
+                        showDevicePicker(devices)
+                    }
+                }
+            }
+        }
+    }
+
+    /** Accumulates RR intervals from every strap notification for the next CSV row. */
+    private fun observeHeartRate() {
+        lifecycleScope.launch {
+            bluetooth.heartRate.sample.collect { sample ->
+                if (sample != null) pendingRrMs += sample.measurement.rrIntervalsMs
+            }
+        }
     }
 
     /**
@@ -179,6 +217,14 @@ class MainActivity : AppCompatActivity() {
      */
     private fun currentGear(): GearReading? =
         if (bluetooth.connectionState.value is ConnectionState.Connected) bluetooth.gear.value else null
+
+    /** The strap's latest measurement, or null when no strap is connected or it has gone quiet. */
+    private fun currentHeartRate(nowMs: Long): HeartRateMeasurement? {
+        if (bluetooth.heartRate.state.value !is HeartRateState.Connected) return null
+        val sample = bluetooth.heartRate.sample.value ?: return null
+        if (nowMs - sample.receivedAtElapsedMs > BluetoothManager.STALE_AFTER_MS) return null
+        return sample.measurement
+    }
 
     private fun renderConnectionState(state: ConnectionState) {
         val connected = state is ConnectionState.Connected
@@ -223,16 +269,23 @@ class MainActivity : AppCompatActivity() {
         if (connected && sessionStartedAtElapsedMs == null) {
             sessionStartedAtElapsedMs = SystemClock.elapsedRealtime()
         }
-        if (state is ConnectionState.DevicesFound) showDevicePicker(state.devices)
     }
 
-    private fun showDevicePicker(devices: List<TrainerDevice>) {
-        if (devicePickerDialog?.isShowing == true) return
-        val labels = devices.map { "${it.name}\n${it.address}" }.toTypedArray()
+    /** Lists trainers and straps together; straps are marked "HR". Picking one connects it. */
+    private fun showDevicePicker(devices: List<ScannedDevice>) {
+        devicePickerDialog?.dismiss()
+        val labels = devices.map { device ->
+            val title = when (device.kind) {
+                DeviceKind.TRAINER -> device.name
+                DeviceKind.HEART_RATE -> getString(R.string.picker_hr_label, device.name)
+            }
+            "$title\n${device.address}"
+        }.toTypedArray()
         devicePickerDialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.picker_title)
             .setItems(labels) { _, index -> bluetooth.connect(devices[index]) }
-            .setNegativeButton(R.string.ftp_dialog_cancel) { _, _ -> bluetooth.disconnect() }
+            .setNegativeButton(R.string.ftp_dialog_cancel) { _, _ -> bluetooth.dismissChoices() }
+            .setOnCancelListener { bluetooth.dismissChoices() }
             .setOnDismissListener { devicePickerDialog = null }
             .show()
     }
@@ -274,6 +327,19 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.getColor(
                 this,
                 if (gear?.confirmed == true) R.color.text_primary else R.color.text_secondary,
+            )
+        )
+
+        // Heart rate: "HR --" without a strap or a fresh reading, dimmed when the strap has
+        // lost skin contact.
+        val hr = currentHeartRate(now)
+        binding.hrValue.text = hr
+            ?.let { getString(R.string.hr_value, it.bpm) }
+            ?: getString(R.string.hr_unknown)
+        binding.hrValue.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (hr != null && !hr.contactLost) R.color.text_primary else R.color.text_secondary,
             )
         )
 
@@ -344,6 +410,7 @@ class MainActivity : AppCompatActivity() {
         if (rideLog != null) return
         val log = runCatching { RideLog.start(this) }.getOrNull() ?: return
         rideLog = log
+        pendingRrMs.clear()
         val startedAt = SystemClock.elapsedRealtime()
         rideLogJob = lifecycleScope.launch {
             while (isActive) {
@@ -355,10 +422,15 @@ class MainActivity : AppCompatActivity() {
                 val smoothed = if (fresh) smoother.average(now) else null
                 val cadence = data?.instantaneousCadenceRpm?.roundToInt()
                 val gear = currentGear()
+                val hr = currentHeartRate(now)
+                val rr = pendingRrMs.toList().also { pendingRrMs.clear() }
                 val elapsed = (now - startedAt) / 1000L
                 withContext(Dispatchers.IO) {
                     runCatching {
-                        log.append(elapsed, raw, smoothed, cadence, gear?.gear, gear?.confirmed == true)
+                        log.append(
+                            elapsed, raw, smoothed, cadence, gear?.gear, gear?.confirmed == true,
+                            hr?.bpm, rr,
+                        )
                     }
                 }
                 delay(LOG_INTERVAL_MS)

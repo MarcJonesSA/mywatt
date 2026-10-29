@@ -13,6 +13,9 @@
     <string name="no_reading">--</string>
     <string name="gear_value">Gear %1$d</string>
     <string name="gear_unknown">Gear --</string>
+    <string name="hr_value">HR %1$d</string>
+    <string name="hr_unknown">HR --</string>
+    <string name="picker_hr_label">%1$s · HR</string>
 
     <string name="action_connect">Connect bike</string>
     <string name="action_searching">Searching…</string>
@@ -37,7 +40,7 @@
     <string name="smoothing_hint">Power smoothing</string>
     <string name="smoothing_invalid">Enter a smoothing window between %1$d and %2$d seconds</string>
 
-    <string name="picker_title">Choose your trainer</string>
+    <string name="picker_title">Choose your devices</string>
     <string name="permission_required">MyWatt needs Bluetooth permission to find your bike</string>
     <string name="bluetooth_disabled">Turn Bluetooth on to connect</string>
 

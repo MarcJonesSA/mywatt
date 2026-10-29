@@ -29,6 +29,22 @@ class RiderSettings(context: Context) {
             )
         }
 
+    /** Bluetooth address and name of the trainer ridden last, for reconnecting on launch. */
+    var trainerAddress: String?
+        get() = prefs.getString(KEY_TRAINER_ADDRESS, null)
+        set(value) = prefs.edit { putString(KEY_TRAINER_ADDRESS, value) }
+    var trainerName: String?
+        get() = prefs.getString(KEY_TRAINER_NAME, null)
+        set(value) = prefs.edit { putString(KEY_TRAINER_NAME, value) }
+
+    /** Bluetooth address and name of the heart-rate strap worn last, for reconnecting on launch. */
+    var strapAddress: String?
+        get() = prefs.getString(KEY_STRAP_ADDRESS, null)
+        set(value) = prefs.edit { putString(KEY_STRAP_ADDRESS, value) }
+    var strapName: String?
+        get() = prefs.getString(KEY_STRAP_NAME, null)
+        set(value) = prefs.edit { putString(KEY_STRAP_NAME, value) }
+
     companion object {
         const val DEFAULT_FTP = 220
         const val MIN_FTP = 50
@@ -41,5 +57,9 @@ class RiderSettings(context: Context) {
         private const val PREFS_NAME = "mywatt_settings"
         private const val KEY_FTP = "ftp_watts"
         private const val KEY_SMOOTHING_SECONDS = "smoothing_seconds"
+        private const val KEY_TRAINER_ADDRESS = "trainer_address"
+        private const val KEY_TRAINER_NAME = "trainer_name"
+        private const val KEY_STRAP_ADDRESS = "strap_address"
+        private const val KEY_STRAP_NAME = "strap_name"
     }
 }
