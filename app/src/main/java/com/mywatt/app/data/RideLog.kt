@@ -35,11 +35,12 @@ class RideLog private constructor(val file: File) {
         gearConfirmed: Boolean,
         heartRateBpm: Int?,
         rrIntervalsMs: List<Int>,
+        hrr60: Int?,
     ) {
         writer.write(
             formatRow(
                 elapsedSeconds, rawWatts, smoothedWatts, cadenceRpm, gear, gearConfirmed,
-                heartRateBpm, rrIntervalsMs,
+                heartRateBpm, rrIntervalsMs, hrr60,
             )
         )
         writer.write("\n")
@@ -54,9 +55,10 @@ class RideLog private constructor(val file: File) {
         /**
          * gear_confirmed is 1 once the bike itself has reported the gear this connection, else 0.
          * rr_ms holds every RR interval received since the previous row, in ms, space separated.
+         * hrr60 is blank except on the row where a 60 s recovery window completes.
          */
         const val HEADER =
-            "elapsed_s,raw_watts,smoothed_watts,cadence_rpm,gear,gear_confirmed,hr_bpm,rr_ms"
+            "elapsed_s,raw_watts,smoothed_watts,cadence_rpm,gear,gear_confirmed,hr_bpm,rr_ms,hrr60"
 
         private const val DIRECTORY = "ride_logs"
 
@@ -85,6 +87,7 @@ class RideLog private constructor(val file: File) {
             gearConfirmed: Boolean,
             heartRateBpm: Int?,
             rrIntervalsMs: List<Int>,
+            hrr60: Int?,
         ): String = listOf(
             elapsedSeconds.toString(),
             rawWatts?.toString() ?: "",
@@ -94,6 +97,7 @@ class RideLog private constructor(val file: File) {
             if (gearConfirmed) "1" else "0",
             heartRateBpm?.toString() ?: "",
             rrIntervalsMs.joinToString(" "),
+            hrr60?.toString() ?: "",
         ).joinToString(",")
 
         private fun directory(context: Context): File = File(context.filesDir, DIRECTORY)

@@ -15,7 +15,16 @@
     <string name="gear_unknown">Gear --</string>
     <string name="hr_value">HR %1$d</string>
     <string name="hr_unknown">HR --</string>
-    <string name="picker_hr_label">%1$s · HR</string>
+    <string name="recovery_value">Recovery %1$s in 60 s</string>
+    <string name="recovery_unknown">Recovery --</string>
+
+    <string name="picker_done">Done</string>
+    <string name="picker_kind_bike">Bike</string>
+    <string name="picker_kind_hr">HR</string>
+    <string name="picker_tap_to_connect">Tap to connect</string>
+    <string name="picker_connecting">Connecting…</string>
+    <string name="picker_connected">Connected</string>
+    <string name="picker_tick">✓</string>
 
     <string name="action_connect">Connect bike</string>
     <string name="action_searching">Searching…</string>

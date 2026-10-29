@@ -97,11 +97,16 @@ class BluetoothManager(context: Context) {
     val gear: StateFlow<GearReading> = _gear.asStateFlow()
 
     /**
-     * Devices a scan turned up that need the rider to choose: trainers when more than one
-     * was found, and straps whenever none is connected. Empty when there is nothing to ask.
+     * Every device the last scan turned up, published when the rider needs to choose
+     * something (more than one trainer, or a strap with none connected). Already-connected
+     * devices are included so the picker can show them ticked. Empty when there is nothing
+     * to ask; cleared by [dismissChoices].
      */
     private val _pendingChoices = MutableStateFlow<List<ScannedDevice>>(emptyList())
     val pendingChoices: StateFlow<List<ScannedDevice>> = _pendingChoices.asStateFlow()
+
+    /** Address of the trainer being ridden (or connected to), for the picker's tick. */
+    val trainerAddress: String? get() = preferredAddress
 
     /** The heart-rate strap's own connection. */
     val heartRate: HeartRateMonitor = HeartRateMonitor(
@@ -218,7 +223,7 @@ class BluetoothManager(context: Context) {
         stopScan()
         val trainers = discoveredTrainers.values.toList()
         val straps = discoveredStraps.values.toList()
-        val choices = ArrayList<ScannedDevice>()
+        var needsPicker = false
 
         if (gatt == null) {
             when {
@@ -227,14 +232,14 @@ class BluetoothManager(context: Context) {
                 trainers.size == 1 -> connect(trainers.first())
                 else -> {
                     _connectionState.value = ConnectionState.DevicesFound(trainers)
-                    choices += trainers
+                    needsPicker = true
                 }
             }
         }
         if (!heartRate.isActive) {
-            if (straps.isEmpty()) heartRate.giveUp() else choices += straps
+            if (straps.isEmpty()) heartRate.giveUp() else needsPicker = true
         }
-        _pendingChoices.value = choices
+        _pendingChoices.value = if (needsPicker) trainers + straps else emptyList()
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -293,16 +298,15 @@ class BluetoothManager(context: Context) {
 
     // -------------------------------------------------------------- connecting
 
-    /** Connects a scanned device of either kind, and drops that kind from [pendingChoices]. */
+    /** Connects a scanned device of either kind. [pendingChoices] is left for the picker. */
     fun connect(device: ScannedDevice) {
-        _pendingChoices.value = _pendingChoices.value.filter { it.kind != device.kind }
         when (device.kind) {
             DeviceKind.TRAINER -> connectTrainer(device)
             DeviceKind.HEART_RATE -> heartRate.connect(device)
         }
     }
 
-    /** The rider closed the picker without choosing. Nothing else changes. */
+    /** The picker is finished with, by Done or because both devices came up. */
     fun dismissChoices() {
         _pendingChoices.value = emptyList()
         if (_connectionState.value is ConnectionState.DevicesFound) {

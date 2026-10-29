@@ -6,8 +6,12 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
+import android.content.DialogInterface
 import android.os.SystemClock
+import android.view.View
 import android.view.WindowManager
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -33,6 +37,7 @@ import com.mywatt.app.data.PowerZones
 import com.mywatt.app.data.RideLog
 import com.mywatt.app.data.RiderSettings
 import com.mywatt.app.databinding.ActivityMainBinding
+import com.mywatt.app.engine.HeartRateRecovery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -53,6 +58,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bluetooth: BluetoothManager
 
     private var devicePickerDialog: AlertDialog? = null
+    private var pickerDevices: List<ScannedDevice> = emptyList()
+    private val pickerRows = ArrayList<View>()
+
+    /** 60 s heart-rate recovery after each effort, fed from the 1 Hz ride-log loop. */
+    private val recovery = HeartRateRecovery()
 
     /**
      * Rolling average of raw power. Everything the rider looks at for power (needle, main
@@ -178,6 +188,11 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                bluetooth.heartRate.state.collect { refreshPickerRows() }
+            }
+        }
     }
 
     /** Accumulates RR intervals from every strap notification for the next CSV row. */
@@ -269,25 +284,105 @@ class MainActivity : AppCompatActivity() {
         if (connected && sessionStartedAtElapsedMs == null) {
             sessionStartedAtElapsedMs = SystemClock.elapsedRealtime()
         }
+        refreshPickerRows()
     }
 
-    /** Lists trainers and straps together; straps are marked "HR". Picking one connects it. */
+    // ---------------------------------------------------------- device picker
+
+    private enum class PickerStatus { AVAILABLE, CONNECTING, CONNECTED }
+
+    /**
+     * Lists every bike and strap the scan found. Tapping a row connects it and the row
+     * stays, ticked once the device is up. The dialog closes on Done, or by itself once
+     * both a bike and a strap are connected.
+     */
     private fun showDevicePicker(devices: List<ScannedDevice>) {
+        if (devicePickerDialog?.isShowing == true && pickerDevices == devices) {
+            refreshPickerRows()
+            return
+        }
         devicePickerDialog?.dismiss()
-        val labels = devices.map { device ->
-            val title = when (device.kind) {
-                DeviceKind.TRAINER -> device.name
-                DeviceKind.HEART_RATE -> getString(R.string.picker_hr_label, device.name)
+
+        val view = layoutInflater.inflate(R.layout.dialog_device_picker, null)
+        val list = view.findViewById<LinearLayout>(R.id.deviceList)
+        pickerDevices = devices
+        pickerRows.clear()
+        devices.forEach { device ->
+            val row = layoutInflater.inflate(R.layout.item_device, list, false)
+            row.findViewById<TextView>(R.id.deviceName).text = device.name
+            row.findViewById<TextView>(R.id.deviceKind).setText(
+                when (device.kind) {
+                    DeviceKind.TRAINER -> R.string.picker_kind_bike
+                    DeviceKind.HEART_RATE -> R.string.picker_kind_hr
+                }
+            )
+            row.setOnClickListener {
+                if (pickerStatus(device) == PickerStatus.AVAILABLE) bluetooth.connect(device)
+                refreshPickerRows()
             }
-            "$title\n${device.address}"
-        }.toTypedArray()
-        devicePickerDialog = MaterialAlertDialogBuilder(this)
+            list.addView(row)
+            pickerRows += row
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.picker_title)
-            .setItems(labels) { _, index -> bluetooth.connect(devices[index]) }
-            .setNegativeButton(R.string.ftp_dialog_cancel) { _, _ -> bluetooth.dismissChoices() }
+            .setView(view)
+            .setPositiveButton(R.string.picker_done) { _, _ -> bluetooth.dismissChoices() }
             .setOnCancelListener { bluetooth.dismissChoices() }
-            .setOnDismissListener { devicePickerDialog = null }
-            .show()
+            .create()
+        // Dismiss callbacks arrive asynchronously, so only the current dialog may clear state.
+        dialog.setOnDismissListener { dismissed: DialogInterface ->
+            if (devicePickerDialog === dismissed) {
+                devicePickerDialog = null
+                pickerDevices = emptyList()
+                pickerRows.clear()
+            }
+        }
+        devicePickerDialog = dialog
+        dialog.show()
+        refreshPickerRows()
+    }
+
+    private fun pickerStatus(device: ScannedDevice): PickerStatus = when (device.kind) {
+        DeviceKind.TRAINER -> {
+            if (device.address != bluetooth.trainerAddress) {
+                PickerStatus.AVAILABLE
+            } else when (bluetooth.connectionState.value) {
+                is ConnectionState.Connected -> PickerStatus.CONNECTED
+                is ConnectionState.Connecting, is ConnectionState.Reconnecting -> PickerStatus.CONNECTING
+                else -> PickerStatus.AVAILABLE
+            }
+        }
+        DeviceKind.HEART_RATE -> {
+            if (device.address != bluetooth.heartRate.preferredAddress) {
+                PickerStatus.AVAILABLE
+            } else when (bluetooth.heartRate.state.value) {
+                is HeartRateState.Connected -> PickerStatus.CONNECTED
+                is HeartRateState.Connecting, is HeartRateState.Reconnecting -> PickerStatus.CONNECTING
+                else -> PickerStatus.AVAILABLE
+            }
+        }
+    }
+
+    /** Repaints each row's hint and tick, and closes the picker once both devices are up. */
+    private fun refreshPickerRows() {
+        if (devicePickerDialog == null) return
+        pickerRows.forEachIndexed { index, row ->
+            val device = pickerDevices.getOrNull(index) ?: return@forEachIndexed
+            val status = pickerStatus(device)
+            row.findViewById<TextView>(R.id.deviceHint).setText(
+                when (status) {
+                    PickerStatus.AVAILABLE -> R.string.picker_tap_to_connect
+                    PickerStatus.CONNECTING -> R.string.picker_connecting
+                    PickerStatus.CONNECTED -> R.string.picker_connected
+                }
+            )
+            row.findViewById<View>(R.id.deviceTick).visibility =
+                if (status == PickerStatus.CONNECTED) View.VISIBLE else View.INVISIBLE
+        }
+        val bikeUp = bluetooth.connectionState.value is ConnectionState.Connected
+        val strapUp = bluetooth.heartRate.state.value is HeartRateState.Connected
+        if (bikeUp && strapUp) bluetooth.dismissChoices()
     }
 
     // ------------------------------------------------------------ live readout
@@ -343,6 +438,11 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
+        // Latest completed 60 s recovery; stays on screen until the next one replaces it.
+        binding.recoveryValue.text = recovery.latest.value
+            ?.let { getString(R.string.recovery_value, formatRecovery(it.hrr60)) }
+            ?: getString(R.string.recovery_unknown)
+
         binding.cadenceValue.text = data?.instantaneousCadenceRpm
             ?.roundToInt()?.toString() ?: getString(R.string.no_reading)
 
@@ -382,6 +482,10 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /** A drop of 13 bpm reads "-13"; the rare rise reads "+5". */
+    private fun formatRecovery(hrr60: Int): String =
+        if (hrr60 >= 0) "-$hrr60" else "+${-hrr60}"
+
     private fun formatElapsed(reportedSeconds: Int?): String {
         val seconds = reportedSeconds
             ?: sessionStartedAtElapsedMs?.let {
@@ -411,6 +515,7 @@ class MainActivity : AppCompatActivity() {
         val log = runCatching { RideLog.start(this) }.getOrNull() ?: return
         rideLog = log
         pendingRrMs.clear()
+        recovery.reset()
         val startedAt = SystemClock.elapsedRealtime()
         rideLogJob = lifecycleScope.launch {
             while (isActive) {
@@ -425,11 +530,12 @@ class MainActivity : AppCompatActivity() {
                 val hr = currentHeartRate(now)
                 val rr = pendingRrMs.toList().also { pendingRrMs.clear() }
                 val elapsed = (now - startedAt) / 1000L
+                val hrr60 = recovery.onSecond(elapsed, hr?.bpm, smoothed)?.hrr60
                 withContext(Dispatchers.IO) {
                     runCatching {
                         log.append(
                             elapsed, raw, smoothed, cadence, gear?.gear, gear?.confirmed == true,
-                            hr?.bpm, rr,
+                            hr?.bpm, rr, hrr60,
                         )
                     }
                 }
