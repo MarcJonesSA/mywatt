@@ -31,7 +31,7 @@ class SessionResultTest {
 
     @Test
     fun `every rep on target`() {
-        val reps = listOf(rep(1, 252, 60), rep(2, 249, 65), rep(3, 240, 72))
+        val reps = listOf(rep(1, 252, 60), rep(2, 249, 65), rep(3, 246, 72))
         assertEquals("All 3 reps on target · Recovery 60 / 65 / 72 s", SessionResult.verdict(reps, completed = true))
     }
 

@@ -6,16 +6,26 @@ import org.junit.Test
 class BandTest {
 
     @Test
-    fun `bands against a 250 W target`() {
+    fun `bands within 2, 3 and 4 percent of a 250 W target`() {
         assertEquals(Band.GREEN, Band.of(250, 250))
-        assertEquals(Band.GREEN, Band.of(300, 250))
-        assertEquals(Band.GREEN, Band.of(238, 250)) // 95.2%
-        assertEquals(Band.YELLOW, Band.of(237, 250)) // 94.8%
-        assertEquals(Band.YELLOW, Band.of(225, 250)) // 90%
-        assertEquals(Band.ORANGE, Band.of(224, 250))
-        assertEquals(Band.ORANGE, Band.of(200, 250)) // 80%
-        assertEquals(Band.RED, Band.of(199, 250))
+        assertEquals(Band.GREEN, Band.of(255, 250)) // +2.0%
+        assertEquals(Band.GREEN, Band.of(245, 250)) // -2.0%
+        assertEquals(Band.YELLOW, Band.of(256, 250)) // +2.4%
+        assertEquals(Band.YELLOW, Band.of(243, 250)) // -2.8%
+        assertEquals(Band.ORANGE, Band.of(242, 250)) // -3.2%
+        assertEquals(Band.ORANGE, Band.of(260, 250)) // +4.0%
+        assertEquals(Band.ORANGE, Band.of(240, 250)) // -4.0%
+        assertEquals(Band.RED, Band.of(261, 250))
+        assertEquals(Band.RED, Band.of(239, 250))
         assertEquals(Band.RED, Band.of(0, 250))
+    }
+
+    @Test
+    fun `over target counts the same as under`() {
+        assertEquals(Band.of(190, 200), Band.of(210, 200))
+        assertEquals(Band.RED, Band.of(210, 200))
+        assertEquals(Band.GREEN, Band.of(204, 200))
+        assertEquals(Band.GREEN, Band.of(196, 200))
     }
 
     @Test
@@ -28,6 +38,6 @@ class BandTest {
         assertEquals("green", Band.GREEN.tag)
         assertEquals("red", Band.RED.tag)
         assertEquals("On target", Band.GREEN.label)
-        assertEquals("Well under", Band.RED.label)
+        assertEquals("Well off", Band.RED.label)
     }
 }

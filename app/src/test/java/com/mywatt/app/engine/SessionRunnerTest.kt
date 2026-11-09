@@ -75,7 +75,9 @@ class SessionRunnerTest {
         assertEquals(0, first.secondsInBlock)
         assertEquals(60, first.secondsLeft)
         assertEquals(240, first.liveRepAverage)
-        assertEquals(Band.GREEN, first.band)
+        // 240 W is 4% under the 250 W target.
+        assertEquals(Band.ORANGE, first.band)
+        // Gear 12 at the start of the rep: no nag.
         assertFalse(first.gearNag)
         assertEquals("Rep 1/3 · 250 W · avg 240 W · 1:00 left", first.statusLine)
     }
@@ -404,54 +406,42 @@ class SessionRunnerTest {
 
     // ---- Gear nag ----------------------------------------------------------------------------
     //
-    // Two reps with no strap, so each recovery falls back to 30 s. Timeline: warm-up 0..9;
-    // rep 1 10..29; recovery 30..59; rep 2 60..79; recovery 80..109; cool-down 110..119.
+    // The short session again: warm-up 0..9, rep 10..29. The nag depends only on the gear
+    // on the rep's first second.
 
-    private fun twoReps() = Session(
-        "Two reps",
-        listOf(
-            WarmUp(10),
-            Rep(20, 200), Recovery(HrGate(fallbackSeconds = 30)),
-            Rep(20, 200), Recovery(HrGate(fallbackSeconds = 30)),
-            CoolDown(10),
-        ),
-    )
-
-    private fun twoRepRide(rep1Watts: Int, rep1Gear: Int?, rep2Gear: Int?) =
+    private fun nagRide(gearAtStart: Int?, gearLater: Int? = gearAtStart) =
         List(10) { Tick(80, null, 7) } +
-            List(20) { Tick(rep1Watts, null, rep1Gear) } +
-            List(30) { Tick(80, null, rep1Gear) } +
-            List(20) { Tick(200, null, rep2Gear) } +
-            List(30) { Tick(80, null, rep2Gear) } +
-            List(10) { Tick(80, null, rep2Gear) }
+            List(20) { i -> Tick(200, null, if (i == 0) gearAtStart else gearLater) } +
+            List(130) { Tick(80, null, gearLater) }
 
     @Test
-    fun `gear nag shows for 5 s when the last rep missed target and the gear has not gone up`() {
-        val states = drive(SessionRunner(twoReps()), twoRepRide(rep1Watts = 150, rep1Gear = 10, rep2Gear = 10))
+    fun `gear nag shows for the first 5 s of a rep started below gear 10`() {
+        val states = drive(SessionRunner(short()), nagRide(gearAtStart = 9))
 
-        assertEquals(Band.RED, states[30].reps[0].band)
-        assertFalse(states[59].gearNag)
-        assertTrue(states[60].gearNag)
-        assertTrue(states[64].gearNag)
-        assertFalse(states[65].gearNag)
+        assertFalse(states[9].gearNag)
+        assertTrue(states[10].gearNag)
+        assertTrue(states[14].gearNag)
+        assertFalse(states[15].gearNag)
+        assertFalse(states[30].gearNag)
     }
 
     @Test
-    fun `gear nag stays off after a rep on target or once the rider has shifted up`() {
-        val onTarget = drive(SessionRunner(twoReps()), twoRepRide(rep1Watts = 200, rep1Gear = 10, rep2Gear = 10))
-        assertFalse(onTarget[60].gearNag)
-        assertFalse(onTarget[62].gearNag)
-
-        val shiftedUp = drive(SessionRunner(twoReps()), twoRepRide(rep1Watts = 150, rep1Gear = 10, rep2Gear = 11))
-        assertFalse(shiftedUp[60].gearNag)
-        assertFalse(shiftedUp[62].gearNag)
+    fun `gear nag stays off from gear 10 up`() {
+        assertFalse(drive(SessionRunner(short()), nagRide(gearAtStart = 10))[10].gearNag)
+        assertFalse(drive(SessionRunner(short()), nagRide(gearAtStart = 14))[12].gearNag)
     }
 
     @Test
-    fun `gear nag fires when the gear is unknown and the last rep missed target`() {
-        val states = drive(SessionRunner(twoReps()), twoRepRide(rep1Watts = 150, rep1Gear = null, rep2Gear = null))
-        assertTrue(states[60].gearNag)
-        // Never during the first rep: there is nothing to compare with.
-        assertFalse(states[10].gearNag)
+    fun `gear nag fires when the gear at rep start is unknown`() {
+        val states = drive(SessionRunner(short()), nagRide(gearAtStart = null, gearLater = 12))
+        assertTrue(states[10].gearNag)
+        assertTrue(states[12].gearNag)
+        assertFalse(states[15].gearNag)
+    }
+
+    @Test
+    fun `gear nag is judged on the starting gear even if the rider shifts straight away`() {
+        val states = drive(SessionRunner(short()), nagRide(gearAtStart = 8, gearLater = 12))
+        assertTrue(states[13].gearNag)
     }
 }

@@ -81,8 +81,8 @@ data class SessionState(
     /** The band of this second's smoothed watts against target during a rep; null outside one. */
     val band: Band?,
     /**
-     * True for the first [SessionRunner.GEAR_NAG_SECONDS] of a rep when the previous rep
-     * missed target and the rider has not shifted up since.
+     * True for the first [SessionRunner.GEAR_NAG_SECONDS] of a rep when the gear on the
+     * rep's first second was below [SessionRunner.GEAR_NAG_BELOW], or unknown.
      */
     val gearNag: Boolean,
     /** Set during a gated recovery, null otherwise. */
@@ -166,6 +166,7 @@ class SessionRunner(val session: Session) {
     private var repWattsSum = 0L
     private var repTicks = 0
     private val repGearCounts = HashMap<Int, Int>()
+    private var repStartGear: Int? = null
     private var repPreHr: Int? = null
     private var repPeakHr: Int? = null
 
@@ -209,6 +210,7 @@ class SessionRunner(val session: Session) {
                         enterBlock(blockIndex + 1, blockStartSeconds + block.seconds)
                         continue
                     }
+                    if (repTicks == 0) repStartGear = gear
                     repWattsSum += watts
                     repTicks++
                     if (gear != null) repGearCounts[gear] = (repGearCounts[gear] ?: 0) + 1
@@ -252,6 +254,7 @@ class SessionRunner(val session: Session) {
                 repWattsSum = 0
                 repTicks = 0
                 repGearCounts.clear()
+                repStartGear = null
                 repPreHr = null
                 repPeakHr = null
             }
@@ -373,7 +376,7 @@ class SessionRunner(val session: Session) {
         }
         val secondsLeft = block.fixedSeconds?.let { it - secondsIn }
         val band = (block as? Rep)?.let { Band.of(watts, it.targetWatts) }
-        val gearNag = block is Rep && secondsIn < GEAR_NAG_SECONDS && gearNagDue(snapshot.lastOrNull(), gear)
+        val gearNag = block is Rep && secondsIn < GEAR_NAG_SECONDS && gearNagDue(repStartGear)
         val phase = when {
             block !is Recovery -> null
             secondsIn <= HeartRateRecovery.PEAK_LOOKAHEAD_SECONDS -> RecoveryPhase.BUILDING
@@ -401,15 +404,8 @@ class SessionRunner(val session: Session) {
         )
     }
 
-    /**
-     * The nag fires when the previous rep missed target (any band but green) and the gear
-     * now is no higher than the one held for that rep, or either gear is unknown.
-     */
-    private fun gearNagDue(previous: RepResult?, gear: Int?): Boolean {
-        if (previous == null || previous.band == Band.GREEN) return false
-        val previousGear = previous.gear ?: return true
-        return gear == null || gear <= previousGear
-    }
+    /** The nag fires when the rep started in a gear below [GEAR_NAG_BELOW], or in no known gear. */
+    private fun gearNagDue(startGear: Int?): Boolean = startGear == null || startGear < GEAR_NAG_BELOW
 
     private fun statusLine(
         block: Block,
@@ -454,5 +450,8 @@ class SessionRunner(val session: Session) {
     companion object {
         /** How long "Gear up" shows at the start of a rep when the nag is due. */
         const val GEAR_NAG_SECONDS = 5
+
+        /** A rep started in a gear below this gets the nag. */
+        const val GEAR_NAG_BELOW = 10
     }
 }
