@@ -4,7 +4,6 @@ import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.net.Uri
 import android.os.Bundle
 import android.content.DialogInterface
 import android.os.SystemClock
@@ -17,7 +16,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -31,13 +29,17 @@ import com.mywatt.app.bluetooth.GearReading
 import com.mywatt.app.bluetooth.HeartRateMeasurement
 import com.mywatt.app.bluetooth.HeartRateState
 import com.mywatt.app.bluetooth.ScannedDevice
-import com.mywatt.app.data.DiscoveryLog
 import com.mywatt.app.data.PowerSmoother
 import com.mywatt.app.data.PowerZones
 import com.mywatt.app.data.RideLog
 import com.mywatt.app.data.RiderSettings
 import com.mywatt.app.databinding.ActivityMainBinding
 import com.mywatt.app.engine.HeartRateRecovery
+import com.mywatt.app.engine.Session
+import com.mywatt.app.session.ActiveSession
+import com.mywatt.app.session.LiveReadout
+import com.mywatt.app.session.SessionActivity
+import com.mywatt.app.ui.shareLatestLogs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -116,8 +118,9 @@ class MainActivity : AppCompatActivity() {
         binding.revCounter.setFtp(settings.ftpWatts)
         binding.ftpButton.text = getString(R.string.ftp_button, settings.ftpWatts)
         binding.ftpButton.setOnClickListener { showFtpDialog() }
-        binding.shareButton.setOnClickListener { shareLatestLog() }
+        binding.shareButton.setOnClickListener { shareLatestLogs(this) }
         binding.connectButton.setOnClickListener { onConnectButtonClicked() }
+        binding.startSessionButton.setOnClickListener { onStartSessionClicked() }
 
         renderZone(null)
         observeConnection()
@@ -134,6 +137,13 @@ class MainActivity : AppCompatActivity() {
         ) {
             beginConnect()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        binding.startSessionButton.setText(
+            if (ActiveSession.isRunning) R.string.action_resume_session else R.string.action_start_session
+        )
     }
 
     override fun onDestroy() {
@@ -557,11 +567,18 @@ class MainActivity : AppCompatActivity() {
                 val completed = recovery.onSecond(elapsed, hr?.bpm, smoothed)
                 val hrr60 = completed?.takeIf { it.hrr120 == null }?.hrr60
                 val hrr120 = completed?.hrr120
+                // The training session, if one is running, is driven from this same loop
+                // and the row records which block it is in.
+                val controller = ActiveSession.controller.value
+                controller?.tick(smoothed, hr?.bpm, gear?.gear)
+                val session = controller?.takeIf { !it.ended }?.state?.value
+                ActiveSession.publishLive(LiveReadout(smoothed, hr?.bpm, hr?.contactLost == true, gear))
                 withContext(Dispatchers.IO) {
                     runCatching {
                         log.append(
                             elapsed, raw, smoothed, cadence, gear?.gear, gear?.confirmed == true,
                             hr?.bpm, rr, hrr60, hrr120,
+                            session?.blockTag, session?.targetWatts, session?.band?.tag,
                         )
                     }
                 }
@@ -575,26 +592,45 @@ class MainActivity : AppCompatActivity() {
         rideLogJob = null
         rideLog?.close()
         rideLog = null
+        ActiveSession.publishLive(null)
     }
 
+    // ------------------------------------------------------- training session
+
     /**
-     * Hands the most recent ride CSV and GATT discovery file to the Android share sheet in
-     * one intent. Both are flushed line by line, so sharing mid-ride is fine.
+     * Opens the session screen. A session already under way is simply shown again;
+     * otherwise a small dialog asks for the rep target, then starts Three by One.
      */
-    private fun shareLatestLog() {
-        val files = listOfNotNull(RideLog.latestFile(this), DiscoveryLog.latestFile(this))
-        if (files.isEmpty()) {
-            Toast.makeText(this, R.string.share_log_none, Toast.LENGTH_SHORT).show()
+    private fun onStartSessionClicked() {
+        if (ActiveSession.isRunning) {
+            startActivity(Intent(this, SessionActivity::class.java))
             return
         }
-        val authority = "$packageName.fileprovider"
-        val uris = ArrayList<Uri>(files.map { FileProvider.getUriForFile(this, authority, it) })
-        val send = Intent(Intent.ACTION_SEND_MULTIPLE)
-            .setType("text/*")
-            .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-            .putExtra(Intent.EXTRA_SUBJECT, files.first().name)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        startActivity(Intent.createChooser(send, getString(R.string.action_share_log)))
+        val view = layoutInflater.inflate(R.layout.dialog_target, null)
+        val input = view.findViewById<TextInputEditText>(R.id.targetInput)
+        input.setText(settings.sessionTargetWatts.toString())
+        input.setSelection(input.text?.length ?: 0)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.session_dialog_title)
+            .setMessage(R.string.session_dialog_message)
+            .setView(view)
+            .setNegativeButton(R.string.ftp_dialog_cancel, null)
+            .setPositiveButton(R.string.session_start) { _, _ ->
+                val target = input.text?.toString()?.trim()?.toIntOrNull()
+                if (target == null || target !in RiderSettings.MIN_TARGET_WATTS..RiderSettings.MAX_TARGET_WATTS) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.target_invalid, RiderSettings.MIN_TARGET_WATTS, RiderSettings.MAX_TARGET_WATTS),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@setPositiveButton
+                }
+                settings.sessionTargetWatts = target
+                ActiveSession.start(Session.threeByOne(target))
+                startActivity(Intent(this, SessionActivity::class.java))
+            }
+            .show()
     }
 
     // -------------------------------------------------------------------- FTP

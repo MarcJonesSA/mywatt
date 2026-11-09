@@ -65,4 +65,39 @@
     <string name="error_no_bike_data">%1$s sends no Indoor Bike Data</string>
 
     <string name="zone_summary">Z%1$d %2$s - %3$s</string>
+
+    <!-- Training session. -->
+    <string name="action_start_session">Start session</string>
+    <string name="action_resume_session">Back to session</string>
+    <string name="session_dialog_title">Three by One</string>
+    <string name="session_dialog_message">5 min warm-up, then 3 × 1 min at target with heart-rate gated recovery, then 3 min cool-down.</string>
+    <string name="target_hint">Target</string>
+    <string name="target_invalid">Enter a target between %1$d and %2$d watts</string>
+    <string name="session_start">Start</string>
+    <string name="session_rep_of">Rep %1$d of %2$d</string>
+    <string name="session_complete">Session complete</string>
+    <string name="session_ended">Session ended</string>
+    <string name="session_paused">Paused</string>
+    <string name="session_waiting">Waiting for the bike…</string>
+    <string name="session_target">Target %1$d W</string>
+    <string name="session_easy">Easy riding</string>
+    <string name="session_gear_up">Gear up</string>
+    <string name="session_recover">Recover · HR %1$s → %2$s · %3$s</string>
+    <string name="session_recover_no_gate">Recover · HR %1$s · %2$s</string>
+    <string name="session_building">building</string>
+    <string name="session_time_left">LEFT</string>
+    <string name="session_time_elapsed">ELAPSED</string>
+    <string name="action_pause">Pause</string>
+    <string name="action_resume">Resume</string>
+    <string name="action_end">End</string>
+    <string name="action_done">Done</string>
+    <string name="session_back_paused">Paused. Press End to finish the session.</string>
+    <string name="results_rep">Rep</string>
+    <string name="results_avg">Avg W</string>
+    <string name="results_target">Target</string>
+    <string name="results_band">Band</string>
+    <string name="results_peak">Peak HR</string>
+    <string name="results_recovery">Rec s</string>
+    <string name="results_timed_out">Timed out</string>
+    <string name="results_yes">yes</string>
 </resources>

@@ -29,6 +29,11 @@ class RiderSettings(context: Context) {
             )
         }
 
+    /** Target watts for the reps of the last training session started. Defaults to [DEFAULT_TARGET_WATTS]. */
+    var sessionTargetWatts: Int
+        get() = prefs.getInt(KEY_SESSION_TARGET, DEFAULT_TARGET_WATTS).coerceIn(MIN_TARGET_WATTS, MAX_TARGET_WATTS)
+        set(value) = prefs.edit { putInt(KEY_SESSION_TARGET, value.coerceIn(MIN_TARGET_WATTS, MAX_TARGET_WATTS)) }
+
     /** Bluetooth address and name of the trainer ridden last, for reconnecting on launch. */
     var trainerAddress: String?
         get() = prefs.getString(KEY_TRAINER_ADDRESS, null)
@@ -50,6 +55,10 @@ class RiderSettings(context: Context) {
         const val MIN_FTP = 50
         const val MAX_FTP = 700
 
+        const val DEFAULT_TARGET_WATTS = 250
+        const val MIN_TARGET_WATTS = 50
+        const val MAX_TARGET_WATTS = 1500
+
         const val DEFAULT_SMOOTHING_SECONDS = 2
         const val MIN_SMOOTHING_SECONDS = 1
         const val MAX_SMOOTHING_SECONDS = 5
@@ -57,6 +66,7 @@ class RiderSettings(context: Context) {
         private const val PREFS_NAME = "mywatt_settings"
         private const val KEY_FTP = "ftp_watts"
         private const val KEY_SMOOTHING_SECONDS = "smoothing_seconds"
+        private const val KEY_SESSION_TARGET = "session_target_watts"
         private const val KEY_TRAINER_ADDRESS = "trainer_address"
         private const val KEY_TRAINER_NAME = "trainer_name"
         private const val KEY_STRAP_ADDRESS = "strap_address"

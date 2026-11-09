@@ -45,6 +45,14 @@
             </intent-filter>
         </activity>
 
+        <!-- The training-session screen, on top of the ride screen that owns the Bluetooth link. -->
+        <activity
+            android:name=".session.SessionActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.MyWatt" />
+
         <!-- Lets the share sheet read ride log CSVs out of app-private storage. -->
         <provider
             android:name="androidx.core.content.FileProvider"

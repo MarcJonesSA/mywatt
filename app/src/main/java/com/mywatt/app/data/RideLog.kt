@@ -37,11 +37,14 @@ class RideLog private constructor(val file: File) {
         rrIntervalsMs: List<Int>,
         hrr60: Int?,
         hrr120: Int?,
+        block: String? = null,
+        targetWatts: Int? = null,
+        band: String? = null,
     ) {
         writer.write(
             formatRow(
                 elapsedSeconds, rawWatts, smoothedWatts, cadenceRpm, gear, gearConfirmed,
-                heartRateBpm, rrIntervalsMs, hrr60, hrr120,
+                heartRateBpm, rrIntervalsMs, hrr60, hrr120, block, targetWatts, band,
             )
         )
         writer.write("\n")
@@ -57,9 +60,13 @@ class RideLog private constructor(val file: File) {
          * gear_confirmed is 1 once the bike itself has reported the gear this connection, else 0.
          * rr_ms holds every RR interval received since the previous row, in ms, space separated.
          * hrr60 and hrr120 are blank except on the row where that recovery reading completes.
+         * block, target_w and band describe the training session in progress (warmup, rep1,
+         * rec1, ..., cooldown; the rep's target; green/yellow/orange/red against it during a
+         * rep) and are blank outside a session.
          */
         const val HEADER =
-            "elapsed_s,raw_watts,smoothed_watts,cadence_rpm,gear,gear_confirmed,hr_bpm,rr_ms,hrr60,hrr120"
+            "elapsed_s,raw_watts,smoothed_watts,cadence_rpm,gear,gear_confirmed,hr_bpm,rr_ms,hrr60,hrr120," +
+                "block,target_w,band"
 
         private const val DIRECTORY = "ride_logs"
 
@@ -90,6 +97,9 @@ class RideLog private constructor(val file: File) {
             rrIntervalsMs: List<Int>,
             hrr60: Int?,
             hrr120: Int?,
+            block: String? = null,
+            targetWatts: Int? = null,
+            band: String? = null,
         ): String = listOf(
             elapsedSeconds.toString(),
             rawWatts?.toString() ?: "",
@@ -101,6 +111,9 @@ class RideLog private constructor(val file: File) {
             rrIntervalsMs.joinToString(" "),
             hrr60?.toString() ?: "",
             hrr120?.toString() ?: "",
+            block ?: "",
+            targetWatts?.toString() ?: "",
+            band ?: "",
         ).joinToString(",")
 
         private fun directory(context: Context): File = File(context.filesDir, DIRECTORY)
