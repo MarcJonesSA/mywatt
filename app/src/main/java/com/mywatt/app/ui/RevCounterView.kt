@@ -143,10 +143,22 @@ class RevCounterView @JvmOverloads constructor(
         super.onDetachedFromWindow()
     }
 
+    /**
+     * The tallest the dial may be, in px; it draws smaller (and stays centred) to fit. Lets
+     * a short screen keep the readouts under the dial in view. No cap by default.
+     */
+    var maxDialHeight: Int = Int.MAX_VALUE
+        set(value) {
+            if (value == field) return
+            field = value
+            requestLayout()
+        }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         // A semicircle plus the readout block that sits under the hub.
-        val desiredHeight = (width * HEIGHT_TO_WIDTH_RATIO).roundToInt() + paddingTop + paddingBottom
+        val desiredHeight = ((width * HEIGHT_TO_WIDTH_RATIO).roundToInt() + paddingTop + paddingBottom)
+            .coerceAtMost(maxDialHeight)
         setMeasuredDimension(width, resolveSize(desiredHeight, heightMeasureSpec))
     }
 

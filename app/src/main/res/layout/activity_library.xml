@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The session library: sessions grouped by region, built into the list at runtime. -->
+<!-- The session library: sessions grouped by region, built into the list at runtime. The
+     list scrolls; FTP and Close stay pinned above the navigation bar. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -10,42 +11,25 @@
     android:paddingStart="20dp"
     android:paddingEnd="20dp"
     android:paddingTop="16dp"
+    android:paddingBottom="8dp"
     tools:context=".library.LibraryActivity">
 
-    <LinearLayout
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:fontFamily="sans-serif-medium"
-            android:letterSpacing="0.04"
-            android:text="@string/library_title"
-            android:textColor="@color/text_primary"
-            android:textSize="24sp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/ftpButton"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minHeight="40dp"
-            android:textColor="@color/text_primary"
-            app:backgroundTint="@color/surface_variant"
-            tools:text="FTP 200 W" />
-    </LinearLayout>
+        android:fontFamily="sans-serif-medium"
+        android:letterSpacing="0.04"
+        android:text="@string/library_title"
+        android:textColor="@color/text_primary"
+        android:textSize="24sp" />
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="4dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingBottom="20dp">
+        android:paddingBottom="12dp">
 
         <LinearLayout
             android:id="@+id/sessionList"
@@ -53,4 +37,34 @@
             android:layout_height="wrap_content"
             android:orientation="vertical" />
     </ScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="8dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/ftpButton"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp"
+            app:backgroundTint="@color/surface_variant"
+            app:cornerRadius="16dp"
+            tools:text="FTP 200 W" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/closeButton"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:text="@string/action_close"
+            android:textSize="16sp"
+            app:cornerRadius="16dp" />
+    </LinearLayout>
 </LinearLayout>

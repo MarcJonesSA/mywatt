@@ -39,6 +39,7 @@ class LibraryActivity : AppCompatActivity() {
         settings = RiderSettings(this)
 
         binding.ftpButton.setOnClickListener { showSettingsDialog(this, settings) { renderFtp() } }
+        binding.closeButton.setOnClickListener { finish() }
         renderFtp()
         buildList()
 

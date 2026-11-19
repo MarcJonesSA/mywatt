@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.content.DialogInterface
 import android.os.SystemClock
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -111,6 +112,7 @@ class MainActivity : AppCompatActivity() {
         renderZone(null)
         observeConnection()
         startDisplayRefresh()
+        binding.mainScroll?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitDialAboveFold() }
 
         // Debug builds only: adb can start a check of the history and ride-log plumbing.
         if (BuildConfig.DEBUG && savedInstanceState == null &&
@@ -350,6 +352,27 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------ live readout
 
+    /**
+     * Portrait only: caps the dial so that gear, HR and the recovery line under it still
+     * fit in the visible part of the scroll view. On a tall screen the cap is above the
+     * dial's natural size and changes nothing; on a short one the dial draws smaller.
+     */
+    private fun fitDialAboveFold() {
+        val scroll = binding.mainScroll ?: return
+        val viewport = scroll.height - scroll.paddingTop - scroll.paddingBottom
+        if (viewport <= 0) return
+        val below = listOf(binding.gearValue, binding.hrValue, binding.recoveryValue).sumOf { view ->
+            val margins = view.layoutParams as? ViewGroup.MarginLayoutParams
+            view.height + (margins?.topMargin ?: 0) + (margins?.bottomMargin ?: 0)
+        }
+        val dialMargins = binding.revCounter.layoutParams as? ViewGroup.MarginLayoutParams
+        val dialMarginTop = dialMargins?.topMargin ?: 0
+        val minimum = (MIN_DIAL_HEIGHT_DP * resources.displayMetrics.density).toInt()
+        val cap = (viewport - below - dialMarginTop).coerceAtLeast(minimum)
+        // Posted: changing the cap requests a layout, which must not happen inside this one.
+        if (cap != binding.revCounter.maxDialHeight) binding.revCounter.post { binding.revCounter.maxDialHeight = cap }
+    }
+
     /** Repaints every readout once a second for as long as the screen is in front. */
     private fun startDisplayRefresh() {
         lifecycleScope.launch {
@@ -503,6 +526,9 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REFRESH_INTERVAL_MS = 1_000L
+
+        /** The dial never shrinks below this, however short the screen. */
+        private const val MIN_DIAL_HEIGHT_DP = 140
         private const val ZONE_CHIP_BACKGROUND_ALPHA = 38
     }
 }
