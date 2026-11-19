@@ -10,9 +10,7 @@ import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
-import android.widget.RadioGroup
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -23,8 +21,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.radiobutton.MaterialRadioButton
-import com.google.android.material.textfield.TextInputEditText
 import com.mywatt.app.bluetooth.BluetoothManager
 import com.mywatt.app.bluetooth.ConnectionState
 import com.mywatt.app.bluetooth.DeviceKind
@@ -36,13 +32,15 @@ import com.mywatt.app.data.PowerSmoother
 import com.mywatt.app.data.PowerZones
 import com.mywatt.app.data.RiderSettings
 import com.mywatt.app.databinding.ActivityMainBinding
+import com.mywatt.app.debug.SelfTest
 import com.mywatt.app.engine.HeartRateRecovery
-import com.mywatt.app.engine.RecoverySetting
-import com.mywatt.app.engine.Session
 import com.mywatt.app.ride.Ride
 import com.mywatt.app.session.ActiveSession
 import com.mywatt.app.session.SessionActivity
 import com.mywatt.app.ui.padForSystemBars
+import com.mywatt.app.ui.showSettingsDialog
+import com.mywatt.app.history.HistoryActivity
+import com.mywatt.app.library.LibraryActivity
 import com.mywatt.app.ui.shareLatestLogs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -106,12 +104,20 @@ class MainActivity : AppCompatActivity() {
         binding.ftpButton.text = getString(R.string.ftp_button, settings.ftpWatts)
         binding.ftpButton.setOnClickListener { showFtpDialog() }
         binding.shareButton.setOnClickListener { shareLatestLogs(this) }
+        binding.historyButton.setOnClickListener { startActivity(Intent(this, HistoryActivity::class.java)) }
         binding.connectButton.setOnClickListener { onConnectButtonClicked() }
         binding.startSessionButton.setOnClickListener { onStartSessionClicked() }
 
         renderZone(null)
         observeConnection()
         startDisplayRefresh()
+
+        // Debug builds only: adb can start a check of the history and ride-log plumbing.
+        if (BuildConfig.DEBUG && savedInstanceState == null &&
+            intent?.getStringExtra(SelfTest.EXTRA) == "history"
+        ) {
+            SelfTest.run(this)
+        }
 
         // Reconnect to the bike and strap from last time without a tap, but only on a fresh
         // start: after a rotation the ride is already up. First-run users (nothing
@@ -474,117 +480,25 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------- training session
 
     /**
-     * Opens the session screen. A session already under way is simply shown again;
-     * otherwise a small dialog asks for the rep target, then starts Three by One.
+     * Opens the session screen if a session is under way, otherwise the session library
+     * to pick one.
      */
     private fun onStartSessionClicked() {
         if (ActiveSession.isRunning) {
             startActivity(Intent(this, SessionActivity::class.java))
-            return
+        } else {
+            startActivity(Intent(this, LibraryActivity::class.java))
         }
-        val view = layoutInflater.inflate(R.layout.dialog_target, null)
-        val input = view.findViewById<TextInputEditText>(R.id.targetInput)
-        input.setText(settings.sessionTargetWatts.toString())
-        input.setSelection(input.text?.length ?: 0)
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.session_dialog_title)
-            .setMessage(R.string.session_dialog_message)
-            .setView(view)
-            .setNegativeButton(R.string.ftp_dialog_cancel, null)
-            .setPositiveButton(R.string.session_start) { _, _ ->
-                val target = input.text?.toString()?.trim()?.toIntOrNull()
-                if (target == null || target !in RiderSettings.MIN_TARGET_WATTS..RiderSettings.MAX_TARGET_WATTS) {
-                    Toast.makeText(
-                        this,
-                        getString(R.string.target_invalid, RiderSettings.MIN_TARGET_WATTS, RiderSettings.MAX_TARGET_WATTS),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                    return@setPositiveButton
-                }
-                settings.sessionTargetWatts = target
-                ActiveSession.start(Session.threeByOne(target, settings.recoverySetting))
-                startActivity(Intent(this, SessionActivity::class.java))
-            }
-            .show()
     }
 
-    // -------------------------------------------------------------------- FTP
+    // --------------------------------------------------------------- settings
 
     private fun showFtpDialog() {
-        val view = layoutInflater.inflate(R.layout.dialog_ftp, null)
-        val input = view.findViewById<TextInputEditText>(R.id.ftpInput)
-        input.setText(settings.ftpWatts.toString())
-        input.setSelection(input.text?.length ?: 0)
-        val smoothingInput = view.findViewById<TextInputEditText>(R.id.smoothingInput)
-        smoothingInput.setText(settings.smoothingSeconds.toString())
-        val recoveryGroup = view.findViewById<RadioGroup>(R.id.recoverySettingGroup)
-        RecoverySetting.entries.forEach { setting ->
-            recoveryGroup.addView(
-                MaterialRadioButton(this).apply {
-                    id = View.generateViewId()
-                    tag = setting
-                    text = getString(
-                        R.string.recovery_setting_option,
-                        setting.label,
-                        (setting.releaseFraction * 100).roundToInt(),
-                        setting.minRecoverySeconds,
-                    )
-                    isChecked = setting == settings.recoverySetting
-                }
-            )
+        showSettingsDialog(this, settings) {
+            binding.ftpButton.text = getString(R.string.ftp_button, settings.ftpWatts)
+            binding.revCounter.setFtp(settings.ftpWatts)
+            renderLiveData()
         }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.ftp_dialog_title)
-            .setMessage(
-                getString(
-                    R.string.ftp_dialog_message,
-                    RiderSettings.MIN_FTP,
-                    RiderSettings.MAX_FTP,
-                )
-            )
-            .setView(view)
-            .setNegativeButton(R.string.ftp_dialog_cancel, null)
-            .setPositiveButton(R.string.ftp_dialog_save) { _, _ ->
-                val entered = input.text?.toString()?.trim()?.toIntOrNull()
-                if (entered == null || entered !in RiderSettings.MIN_FTP..RiderSettings.MAX_FTP) {
-                    Toast.makeText(
-                        this,
-                        getString(
-                            R.string.ftp_invalid,
-                            RiderSettings.MIN_FTP,
-                            RiderSettings.MAX_FTP,
-                        ),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                    return@setPositiveButton
-                }
-                val smoothing = smoothingInput.text?.toString()?.trim()?.toIntOrNull()
-                if (smoothing == null ||
-                    smoothing !in RiderSettings.MIN_SMOOTHING_SECONDS..RiderSettings.MAX_SMOOTHING_SECONDS
-                ) {
-                    Toast.makeText(
-                        this,
-                        getString(
-                            R.string.smoothing_invalid,
-                            RiderSettings.MIN_SMOOTHING_SECONDS,
-                            RiderSettings.MAX_SMOOTHING_SECONDS,
-                        ),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                    return@setPositiveButton
-                }
-                settings.ftpWatts = entered
-                settings.smoothingSeconds = smoothing
-                recoveryGroup.findViewById<View>(recoveryGroup.checkedRadioButtonId)
-                    ?.let { settings.recoverySetting = it.tag as RecoverySetting }
-                smoother.windowSeconds = smoothing
-                binding.ftpButton.text = getString(R.string.ftp_button, entered)
-                binding.revCounter.setFtp(entered)
-                renderLiveData()
-            }
-            .show()
     }
 
     companion object {

@@ -39,9 +39,26 @@ object ActiveSession {
     /** Set once the rider has answered the offer to save an FTP test's estimate, so it is asked once. */
     var ftpOfferAnswered = false
 
+    /** Wall-clock time the current session was started, ms since the epoch. */
+    var startedAtMs: Long = 0L
+        private set
+
+    private var savedController: SessionController? = null
+
+    /**
+     * True the first time it is called for [controller], false after: whoever gets true
+     * saves the result, so a session lands in the history once.
+     */
+    fun claimSave(controller: SessionController): Boolean {
+        if (savedController === controller) return false
+        savedController = controller
+        return true
+    }
+
     fun start(session: Session): SessionController {
         val controller = SessionController(session)
         ftpOfferAnswered = false
+        startedAtMs = System.currentTimeMillis()
         _controller.value = controller
         return controller
     }

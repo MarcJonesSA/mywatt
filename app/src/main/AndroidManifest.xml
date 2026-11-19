@@ -51,6 +51,24 @@
             android:parentActivityName=".MainActivity"
             android:theme="@style/Theme.MyWatt" />
 
+        <activity
+            android:name=".library.LibraryActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.MyWatt" />
+
+        <activity
+            android:name=".history.HistoryActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.MyWatt" />
+
+        <activity
+            android:name=".history.HistoryDetailActivity"
+            android:exported="false"
+            android:parentActivityName=".history.HistoryActivity"
+            android:theme="@style/Theme.MyWatt" />
+
         <!-- Lets the share sheet read ride log CSVs out of app-private storage. -->
         <provider
             android:name="androidx.core.content.FileProvider"

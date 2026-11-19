@@ -2,6 +2,7 @@ package com.mywatt.app.ride
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import com.mywatt.app.bluetooth.BluetoothManager
 import com.mywatt.app.bluetooth.ConnectionState
 import com.mywatt.app.bluetooth.GearReading
@@ -10,6 +11,7 @@ import com.mywatt.app.bluetooth.HeartRateState
 import com.mywatt.app.data.PowerSmoother
 import com.mywatt.app.data.RideLog
 import com.mywatt.app.data.RiderSettings
+import com.mywatt.app.data.history.HistoryDatabase
 import com.mywatt.app.engine.HeartRateRecovery
 import com.mywatt.app.session.ActiveSession
 import com.mywatt.app.session.LiveReadout
@@ -19,6 +21,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -65,6 +70,35 @@ class Ride private constructor(context: Context) {
         observeLiveSamples()
         observeRideLogging()
         observeConnectionClock()
+        observeSessions()
+    }
+
+    /**
+     * For each training session: tags the ride log with its library id, and once its
+     * result appears, saves it to the history. The save runs as its own job so that
+     * leaving the results page straight away does not cut it short.
+     */
+    private fun observeSessions() {
+        scope.launch {
+            ActiveSession.controller.collectLatest { controller ->
+                if (controller == null) return@collectLatest
+                if (!controller.ended) tagLog(controller.session.id)
+                val result = controller.result.filterNotNull().first()
+                if (!ActiveSession.claimSave(controller)) return@collectLatest
+                val startedAt = ActiveSession.startedAtMs
+                scope.launch(Dispatchers.IO) {
+                    runCatching {
+                        HistoryDatabase.get(appContext).dao().insert(result, startedAt, System.currentTimeMillis())
+                    }.onFailure { Log.e(TAG, "Could not save session result", it) }
+                }
+            }
+        }
+    }
+
+    private fun tagLog(sessionId: String) {
+        val log = rideLog ?: return
+        if (sessionId.isEmpty()) return
+        runCatching { log.tagWithSession(sessionId) }.onFailure { Log.w(TAG, "Could not tag ride log", it) }
     }
 
     /**
@@ -141,6 +175,7 @@ class Ride private constructor(context: Context) {
         if (rideLog != null) return
         val log = runCatching { RideLog.start(appContext) }.getOrNull() ?: return
         rideLog = log
+        ActiveSession.controller.value?.takeIf { !it.ended }?.let { tagLog(it.session.id) }
         pendingRrMs.clear()
         recovery.reset()
         val startedAt = SystemClock.elapsedRealtime()
@@ -198,11 +233,15 @@ class Ride private constructor(context: Context) {
 
     companion object {
         private const val LOG_INTERVAL_MS = 1_000L
+        private const val TAG = "Ride"
 
         private var instance: Ride? = null
 
         /** True once a ride has been created and not yet released. */
         val exists: Boolean get() = instance != null
+
+        /** The ride in progress, or null if none has been created. */
+        val current: Ride? get() = instance
 
         /** The ride in progress, created on first use. Main thread only. */
         fun get(context: Context): Ride = instance ?: Ride(context).also { instance = it }

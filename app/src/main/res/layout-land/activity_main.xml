@@ -32,6 +32,15 @@
             android:textSize="24sp" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/historyButton"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="@string/action_history"
+            app:icon="@android:drawable/ic_menu_recent_history"
+            app:iconTint="@color/text_primary" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/shareButton"
             style="@style/Widget.Material3.Button.IconButton"
             android:layout_width="wrap_content"

@@ -6,10 +6,10 @@ import org.junit.Test
 
 class PowerZonesTest {
 
-    private val ftp = RiderSettings.DEFAULT_FTP // 220 W
+    private val ftp = 220
 
     @Test
-    fun `puts wattages in the right zone at the default FTP`() {
+    fun `puts wattages in the right zone at 220 W`() {
         assertEquals(PowerZone.Z1, PowerZones.zoneFor(0, ftp))
         assertEquals(PowerZone.Z1, PowerZones.zoneFor(120, ftp))
         assertEquals(PowerZone.Z2, PowerZones.zoneFor(121, ftp))

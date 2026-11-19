@@ -1,13 +1,8 @@
 package com.mywatt.app.session
 
-import android.graphics.Typeface
 import android.os.Bundle
-import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.widget.TableLayout
-import android.widget.TableRow
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.annotation.ColorInt
@@ -29,6 +24,7 @@ import com.mywatt.app.engine.RecoveryPhase
 import com.mywatt.app.engine.SessionController
 import com.mywatt.app.engine.SessionResult
 import com.mywatt.app.engine.SessionState
+import com.mywatt.app.ui.ResultsTable
 import com.mywatt.app.ui.padForSystemBars
 import com.mywatt.app.ui.shareLatestLogs
 import kotlinx.coroutines.flow.combine
@@ -213,33 +209,7 @@ class SessionActivity : AppCompatActivity() {
             getString(R.string.results_recovery_setting, result.recoverySetting.label)
         result.ftpEstimate?.let { offerFtp(it) }
 
-        val table = binding.resultsTable
-        table.removeAllViews()
-        val secondary = ContextCompat.getColor(this, R.color.text_secondary)
-        val primary = ContextCompat.getColor(this, R.color.text_primary)
-        table.addView(
-            row(
-                listOf(
-                    R.string.results_rep, R.string.results_avg, R.string.results_target, R.string.results_band,
-                    R.string.results_peak, R.string.results_recovery, R.string.results_timed_out,
-                ).map { cell(getString(it), secondary, bold = false) }
-            )
-        )
-        result.reps.forEach { rep ->
-            table.addView(
-                row(
-                    listOf(
-                        cell(rep.repNumber.toString(), primary, bold = true),
-                        cell(rep.averageWatts.toString(), primary, bold = true),
-                        cell(rep.targetWatts.toString(), primary, bold = false),
-                        cell(rep.band.label, bandColor(rep.band), bold = true),
-                        cell(rep.peakHr?.toString() ?: getString(R.string.no_reading), primary, bold = false),
-                        cell(rep.recoverySeconds?.toString() ?: getString(R.string.no_reading), primary, bold = false),
-                        cell(if (rep.gateTimedOut) getString(R.string.results_yes) else "", primary, bold = false),
-                    )
-                )
-            )
-        }
+        ResultsTable.render(binding.resultsTable, result.reps)
     }
 
     /** Asks once whether to save an FTP test's estimate as the rider's FTP. */
@@ -261,35 +231,10 @@ class SessionActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun row(cells: List<TextView>): TableRow = TableRow(this).also { row ->
-        row.layoutParams = TableLayout.LayoutParams(
-            TableLayout.LayoutParams.WRAP_CONTENT, TableLayout.LayoutParams.WRAP_CONTENT,
-        )
-        cells.forEach { row.addView(it) }
-    }
-
-    private fun cell(text: String, @ColorInt colour: Int, bold: Boolean): TextView = TextView(this).also {
-        it.text = text
-        it.setTextColor(colour)
-        it.textSize = 15f
-        it.gravity = Gravity.END
-        it.setTypeface(null, if (bold) Typeface.BOLD else Typeface.NORMAL)
-        val pad = (resources.displayMetrics.density * 6).toInt()
-        it.setPadding(pad * 2, pad, pad * 2, pad)
-    }
-
     // --------------------------------------------------------------- helpers
 
     @ColorInt
-    private fun bandColor(band: Band): Int = ContextCompat.getColor(
-        this,
-        when (band) {
-            Band.GREEN -> R.color.zone_2
-            Band.YELLOW -> R.color.zone_4
-            Band.ORANGE -> R.color.zone_5
-            Band.RED -> R.color.zone_6
-        },
-    )
+    private fun bandColor(band: Band): Int = ResultsTable.bandColor(this, band)
 
     /** A drop of 15 bpm reads "-15"; a rise over the minute reads "+4". */
     private fun formatDrop(drop: Int): String = if (drop >= 0) "-$drop" else "+${-drop}"

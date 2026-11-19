@@ -11,13 +11,19 @@ import java.util.Locale
  * One CSV file per connection in app-private storage, one row per second while connected.
  *
  * Files live in `filesDir/ride_logs/` and are named by the wall-clock time the connection
- * came up. Missing values are written as empty cells so the column count never changes.
+ * came up, plus the library id of any training session ridden during it
+ * (`ride_20261119_101500_vo2-5x5.csv`). Missing values are written as empty cells so the
+ * column count never changes.
  *
  * TODO: nothing prunes old logs yet; at ~30 bytes a row that is roughly 100 kB an hour.
  */
-class RideLog private constructor(val file: File) {
+class RideLog private constructor(file: File) {
 
-    private val writer = FileWriter(file, /* append = */ true)
+    /** The file being written; changes when [tagWithSession] renames it. */
+    var file: File = file
+        private set
+
+    private var writer = FileWriter(file, /* append = */ true)
 
     init {
         writer.write(HEADER)
@@ -25,7 +31,24 @@ class RideLog private constructor(val file: File) {
         writer.flush()
     }
 
+    /**
+     * Adds a training session's library [sessionId] to the file name, once per id. The file
+     * is closed, renamed and reopened for appending, so no row is lost or repeated. If the
+     * rename fails the log carries on under its old name.
+     */
+    @Synchronized
+    fun tagWithSession(sessionId: String) {
+        val name = taggedName(file.name, sessionId)
+        if (name == file.name) return
+        writer.flush()
+        writer.close()
+        val target = File(file.parentFile, name)
+        if (!target.exists() && file.renameTo(target)) file = target
+        writer = FileWriter(file, /* append = */ true)
+    }
+
     /** Appends one row and flushes it, so a crash loses at most the current second. */
+    @Synchronized
     fun append(
         elapsedSeconds: Long,
         rawWatts: Int?,
@@ -51,6 +74,7 @@ class RideLog private constructor(val file: File) {
         writer.flush()
     }
 
+    @Synchronized
     fun close() {
         runCatching { writer.close() }
     }
@@ -77,7 +101,22 @@ class RideLog private constructor(val file: File) {
             var file = File(dir, "ride_$stamp.csv")
             var suffix = 1
             while (file.exists()) file = File(dir, "ride_${stamp}_${suffix++}.csv")
-            return RideLog(file)
+            return open(file)
+        }
+
+        /** Starts a log in [file], which should not exist yet. */
+        fun open(file: File): RideLog = RideLog(file)
+
+        /**
+         * [name] with [sessionId] added before `.csv`, e.g. ride_20261119_101500.csv and
+         * vo2-5x5 give ride_20261119_101500_vo2-5x5.csv. Unchanged if the id is blank,
+         * not file-safe, or already in the name.
+         */
+        fun taggedName(name: String, sessionId: String): String {
+            if (sessionId.isBlank() || !Regex("[A-Za-z0-9-]+").matches(sessionId)) return name
+            val base = name.removeSuffix(".csv")
+            if (base.split('_').contains(sessionId)) return name
+            return "${base}_$sessionId.csv"
         }
 
         /** The most recently written log, or null if nothing has been recorded yet. */
