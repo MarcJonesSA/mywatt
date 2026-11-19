@@ -66,6 +66,7 @@ class SessionActivity : AppCompatActivity() {
             binding.wattsUnit.visibility = View.GONE
         }
 
+        binding.profileStrip.setSession(controller.session)
         binding.pauseButton.setOnClickListener { controller.togglePause() }
         binding.endButton.setOnClickListener { controller.end() }
         binding.shareResultsButton.setOnClickListener { shareLatestLogs(this) }
@@ -106,6 +107,7 @@ class SessionActivity : AppCompatActivity() {
         val block = state.block
         val inRep = state.targetWatts != null
         val inRecovery = block is Recovery
+        binding.profileStrip.setPosition(state.blockIndex, state.secondsInBlock)
 
         binding.blockTitle.text = block?.label ?: getString(R.string.session_complete)
         binding.repLine.text = when {

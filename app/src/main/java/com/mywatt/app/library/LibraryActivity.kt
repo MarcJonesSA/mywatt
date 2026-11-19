@@ -6,6 +6,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.mywatt.app.ui.SessionProfileView
 import com.mywatt.app.R
 import com.mywatt.app.data.RiderSettings
 import com.mywatt.app.databinding.ActivityLibraryBinding
@@ -101,9 +102,20 @@ class LibraryActivity : AppCompatActivity() {
                 append(getString(R.string.library_confirm_recovery, settings.recoverySetting.label))
             }
         }
+        val density = resources.displayMetrics.density
+        val profile = SessionProfileView(this).apply {
+            setSession(built)
+            val side = (24 * density).toInt()
+            setPadding(side, (8 * density).toInt(), side, 0)
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                (72 * density).toInt(),
+            )
+        }
         MaterialAlertDialogBuilder(this)
             .setTitle(session.name)
             .setMessage(message)
+            .setView(profile)
             .setNegativeButton(R.string.ftp_dialog_cancel, null)
             .setNeutralButton(R.string.library_change_ftp) { _, _ ->
                 showSettingsDialog(this, settings) {

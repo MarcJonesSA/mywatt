@@ -37,6 +37,15 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
+                <!-- The session's profile: one bar per block, current block bright, marker at the rider. -->
+                <com.mywatt.app.ui.SessionProfileView
+                    android:id="@+id/profileStrip"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:layout_marginBottom="4dp" />
+
                 <!-- Dial mode: the rev counter takes the place of the big number. -->
                 <com.mywatt.app.ui.RevCounterView
                     android:id="@+id/revCounter"

@@ -57,6 +57,14 @@
             android:layout_weight="1" />
 
         <!-- Centre: smoothed watts, large, with the target under it. -->
+        <!-- The session's profile: one bar per block, current block bright, marker at the rider. -->
+        <com.mywatt.app.ui.SessionProfileView
+            android:id="@+id/profileStrip"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp" />
+
         <!-- Dial mode: the rev counter takes the place of the big number. -->
         <com.mywatt.app.ui.RevCounterView
             android:id="@+id/revCounter"
