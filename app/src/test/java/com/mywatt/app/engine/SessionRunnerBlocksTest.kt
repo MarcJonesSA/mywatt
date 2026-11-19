@@ -193,7 +193,10 @@ class SessionRunnerBlocksTest {
         val first = ride.tick(240)
         assertEquals(1, first.setNumber)
         assertEquals(1, first.repNumber)
-        assertEquals("Rep 1/39 · 240 W · avg 240 W · 0:30 left", first.statusLine)
+        // A 30 s rep has no average until its 2 s ramp-in is over.
+        assertEquals("Rep 1/39 · 240 W · 0:30 left", first.statusLine)
+        ride.tick(240)
+        assertEquals("Rep 1/39 · 240 W · avg 240 W · 0:28 left", ride.tick(240).statusLine)
 
         val force = Ride(Library.byId("low-cadence-force")!!.build(200))
         force.ticks(300, 110)

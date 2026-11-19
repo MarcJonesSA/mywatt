@@ -66,6 +66,18 @@ data class Rep(
     val set: Int = 0,
 ) : Block {
     override val label: String get() = kind.label
+
+    /**
+     * A short rep (30 s or less, not a best-window sprint) is scored on raw watts from
+     * [SHORT_REP_RAMP_IN_SECONDS] in to the end: smoothing would still be climbing for
+     * most of it and mark a well-ridden rep down.
+     */
+    val scoresOnRaw: Boolean get() = bestWindowSeconds == null && seconds <= SHORT_REP_MAX_SECONDS
+
+    companion object {
+        const val SHORT_REP_MAX_SECONDS = 30
+        const val SHORT_REP_RAMP_IN_SECONDS = 2
+    }
 }
 
 /**

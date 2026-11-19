@@ -209,6 +209,8 @@ class SessionRunner(val session: Session) {
     private var repPowerSum = 0L
     private var repPowerTicks = 0
     private val repRawWatts = ArrayList<Int?>()
+    // Raw watts from a short rep's seconds after its ramp-in (by second in the rep, not count).
+    private val repRawAfterRampIn = ArrayList<Int>()
     private val repGearCounts = HashMap<Int, Int>()
     private var repStartGear: Int? = null
     private var repPreHr: Int? = null
@@ -275,6 +277,9 @@ class SessionRunner(val session: Session) {
                         continue
                     }
                     accumulate(watts, rawWatts, hrBpm, gear)
+                    if (rawWatts != null && secondsIn >= Rep.SHORT_REP_RAMP_IN_SECONDS) {
+                        repRawAfterRampIn += rawWatts.coerceAtLeast(0)
+                    }
                     break
                 }
 
@@ -310,7 +315,7 @@ class SessionRunner(val session: Session) {
             }
         }
 
-        publish(elapsedSeconds, watts, hrBpm, gear)
+        publish(elapsedSeconds, watts, hrBpm, gear, rawWatts)
     }
 
     /**
@@ -356,6 +361,7 @@ class SessionRunner(val session: Session) {
         repPowerTicks = 0
         repTicks = 0
         repRawWatts.clear()
+        repRawAfterRampIn.clear()
         repGearCounts.clear()
         repStartGear = null
         repPreHr = null
@@ -382,8 +388,16 @@ class SessionRunner(val session: Session) {
     private fun smoothedAverage(): Int? =
         if (repPowerTicks == 0) null else (repPowerSum.toDouble() / repPowerTicks).roundToInt()
 
+    /** Average raw watts after a short rep's ramp-in, leaving out missing seconds; null if none. */
+    private fun shortRepAverage(): Int? =
+        repRawAfterRampIn.takeIf { it.isNotEmpty() }?.average()?.roundToInt()
+
     private fun finishRep(rep: Rep) {
-        val average = rep.bestWindowSeconds?.let { bestAverage(repRawWatts, it) } ?: smoothedAverage()
+        val average = when {
+            rep.bestWindowSeconds != null -> bestAverage(repRawWatts, rep.bestWindowSeconds)
+            rep.scoresOnRaw -> shortRepAverage()
+            else -> smoothedAverage()
+        }
         val gate = (session.blocks.getOrNull(blockIndex + 1) as? Recovery)?.gate
         reps += RepResult(
             repNumber = reps.size + 1,
@@ -474,7 +488,7 @@ class SessionRunner(val session: Session) {
         reps[reps.lastIndex] = rep.copy(recoverySeconds = sinceEnd, gateTimedOut = timedOut)
     }
 
-    private fun publish(elapsedSeconds: Long, watts: Int?, hrBpm: Int?, gear: Int?) {
+    private fun publish(elapsedSeconds: Long, watts: Int?, hrBpm: Int?, gear: Int?, rawWatts: Int? = watts) {
         val snapshot = reps.toList()
         if (finished) {
             _state.value = SessionState(
@@ -502,13 +516,22 @@ class SessionRunner(val session: Session) {
         val secondsIn = (elapsedSeconds - blockStartSeconds).toInt()
         val scored = block is Rep || block is Ramp
         val repNumber = snapshot.size + if (scored) 1 else 0
-        val liveAverage = if (scored) smoothedAverage() else null
+        // A short rep shows and is judged on raw watts once its ramp-in is over; until then
+        // there is no band, so the first pedal strokes are not marked red.
+        val shortRep = (block as? Rep)?.takeIf { it.scoresOnRaw }
+        val rampingIn = shortRep != null && secondsIn < Rep.SHORT_REP_RAMP_IN_SECONDS
+        val liveAverage = when {
+            !scored -> null
+            shortRep != null -> shortRepAverage()
+            else -> smoothedAverage()
+        }
         val secondsLeft = when (block) {
             is Ramp -> block.stepSeconds - secondsIn % block.stepSeconds
             else -> block.fixedSeconds?.let { it - secondsIn }
         }
         val target = block.scoredTarget(secondsIn, rampStepIndex)
-        val band = if (watts != null && target != null) Band.of(watts, target) else null
+        val judged = if (shortRep != null) rawWatts else watts
+        val band = if (judged != null && target != null && !rampingIn) Band.of(judged, target) else null
         val gearNag = block is Rep && block.kind.gearNag &&
             secondsIn < GEAR_NAG_SECONDS && gearNagDue(repStartGear)
         val phase = when {
