@@ -43,7 +43,7 @@ data class SessionResult(
             reps.lastOrNull()?.let { last ->
                 parts += when (test) {
                     FtpTest.RAMP -> "Last full step ${last.targetWatts} W"
-                    FtpTest.TWENTY_MINUTE -> "20 min average ${last.averageWatts} W"
+                    FtpTest.TWENTY_MINUTE -> "20 min average ${last.averageWatts?.toString() ?: "--"} W"
                 }
             }
             if (!completed) parts += "Ended early"
@@ -58,11 +58,13 @@ data class SessionResult(
             if (reps.isEmpty()) return if (completed) "No reps" else "Ended before the first rep"
             val parts = ArrayList<String>()
             val onTarget = reps.count { it.band == Band.GREEN }
+            val noPower = reps.count { it.averageWatts == null }
             parts += if (onTarget == reps.size) {
                 "All ${reps.size} reps on target"
             } else {
                 "$onTarget of ${reps.size} reps on target"
             }
+            if (noPower > 0) parts += "$noPower without power data"
             val recoveries = reps.mapNotNull { it.recoverySeconds }
             if (recoveries.isNotEmpty()) parts += "Recovery " + recoveries.joinToString(" / ") + " s"
             val timedOut = reps.filter { it.gateTimedOut }

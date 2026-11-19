@@ -18,9 +18,10 @@ data class RepResult(
     val seconds: Int,
     /**
      * Average smoothed power over the rep, rounded to whole watts; for a sprint, the best
-     * rolling average of raw watts over its window. Missing power counts as 0 W.
+     * rolling average of raw watts over its window. Seconds without a power reading are
+     * left out, and a rep with none at all scores null (missing), not 0 W.
      */
-    val averageWatts: Int,
+    val averageWatts: Int?,
     /** The gear held for most of the rep, or null if no gear was reported. */
     val gear: Int?,
     /** HR on the rep's first second with a reading; null without a strap. */
@@ -43,11 +44,11 @@ data class RepResult(
     /** True if the recovery hit [HrGate.maxSeconds] without HR reaching the gate. */
     val gateTimedOut: Boolean,
 ) {
-    /** Average as a fraction of target, e.g. 0.97. */
-    val fractionOfTarget: Double get() = averageWatts.toDouble() / targetWatts
+    /** Average as a fraction of target, e.g. 0.97; null without power data. */
+    val fractionOfTarget: Double? get() = averageWatts?.let { it.toDouble() / targetWatts }
 
-    /** How close the average came to target. */
-    val band: Band get() = Band.of(averageWatts, targetWatts)
+    /** How close the average came to target; null without power data. */
+    val band: Band? get() = averageWatts?.let { Band.of(it, targetWatts) }
 
     /** [peakHr] minus [preHr], or null until both are known. */
     val rise: Int? get() = if (preHr != null && peakHr != null) peakHr - preHr else null
@@ -82,9 +83,9 @@ data class SessionState(
     val repNumber: Int,
     /** The current rep's (or ramp step's) target; null outside a scored effort. */
     val targetWatts: Int?,
-    /** Running average watts during a rep; null outside one. */
+    /** Running average watts during a rep; null outside one or before any power reading. */
     val liveRepAverage: Int?,
-    /** The band of this second's smoothed watts against target during a rep; null outside one. */
+    /** The band of this second's watts against target during a rep; null outside one or without a reading. */
     val band: Band?,
     /**
      * True for the first [SessionRunner.GEAR_NAG_SECONDS] of a rep when the gear on the
@@ -202,10 +203,12 @@ class SessionRunner(val session: Session) {
 
     private val reps = ArrayList<RepResult>()
 
-    // Rep (or ramp step) in progress.
-    private var repWattsSum = 0L
+    // Rep (or ramp step) in progress. repTicks counts every second; the power sum only
+    // the seconds that had a reading.
     private var repTicks = 0
-    private val repRawWatts = ArrayList<Int>()
+    private var repPowerSum = 0L
+    private var repPowerTicks = 0
+    private val repRawWatts = ArrayList<Int?>()
     private val repGearCounts = HashMap<Int, Int>()
     private var repStartGear: Int? = null
     private var repPreHr: Int? = null
@@ -227,10 +230,11 @@ class SessionRunner(val session: Session) {
     private var recoveryMinuteMarkHr: Int? = null
 
     /**
-     * Feeds one second. [smoothedWatts] null counts as 0 W, [hrBpm] null means the strap
-     * gave nothing this second, [gear] null means the bike has not reported one.
-     * [rawWatts] (for sprints) defaults to the smoothed figure and [cadenceRpm] (for the
-     * ramp) null counts as not pedalling.
+     * Feeds one second of the session clock. Call it once a second whether or not the bike
+     * is sending anything: every reading may be null. [smoothedWatts] null means no power
+     * this second (left out of the rep's average), [hrBpm] null means the strap gave
+     * nothing, [gear] null means the bike has not reported one. [rawWatts] defaults to the
+     * smoothed figure and [cadenceRpm] (for the ramp) null counts as not pedalling.
      */
     fun onSecond(
         elapsedSeconds: Long,
@@ -246,7 +250,7 @@ class SessionRunner(val session: Session) {
             enterBlock(0, elapsedSeconds)
         }
 
-        val watts = smoothedWatts ?: 0
+        val watts = smoothedWatts
 
         // Move past every block whose time is up, then account this second to the one
         // that is current. A recovery is judged after it has seen this second's HR, and a
@@ -295,7 +299,8 @@ class SessionRunner(val session: Session) {
                     accumulate(watts, rawWatts, hrBpm, gear)
                     val cadenceLow = cadenceRpm == null || cadenceRpm < block.cadenceFloorRpm
                     rampLowCadence = if (cadenceLow) rampLowCadence + 1 else 0
-                    rampLowPower = if (watts < block.stepTarget(rampStepIndex)) rampLowPower + 1 else 0
+                    // No reading counts as under the step: a ramp cannot be held without power.
+                    rampLowPower = if ((watts ?: 0) < block.stepTarget(rampStepIndex)) rampLowPower + 1 else 0
                     if (rampLowCadence >= block.cadenceFailSeconds || rampLowPower >= block.powerFailSeconds) {
                         enterBlock(blockIndex + 1, elapsedSeconds)
                         continue
@@ -347,7 +352,8 @@ class SessionRunner(val session: Session) {
     }
 
     private fun resetRep() {
-        repWattsSum = 0
+        repPowerSum = 0
+        repPowerTicks = 0
         repTicks = 0
         repRawWatts.clear()
         repGearCounts.clear()
@@ -356,11 +362,14 @@ class SessionRunner(val session: Session) {
         repPeakHr = null
     }
 
-    private fun accumulate(watts: Int, rawWatts: Int?, hrBpm: Int?, gear: Int?) {
+    private fun accumulate(watts: Int?, rawWatts: Int?, hrBpm: Int?, gear: Int?) {
         if (repTicks == 0) repStartGear = gear
-        repWattsSum += watts
         repTicks++
-        repRawWatts += (rawWatts ?: 0).coerceAtLeast(0)
+        if (watts != null) {
+            repPowerSum += watts
+            repPowerTicks++
+        }
+        repRawWatts += rawWatts?.coerceAtLeast(0)
         if (gear != null) repGearCounts[gear] = (repGearCounts[gear] ?: 0) + 1
         if (hrBpm != null) {
             if (repPreHr == null) repPreHr = hrBpm
@@ -370,8 +379,8 @@ class SessionRunner(val session: Session) {
         }
     }
 
-    private fun smoothedAverage(): Int =
-        if (repTicks == 0) 0 else (repWattsSum.toDouble() / repTicks).roundToInt()
+    private fun smoothedAverage(): Int? =
+        if (repPowerTicks == 0) null else (repPowerSum.toDouble() / repPowerTicks).roundToInt()
 
     private fun finishRep(rep: Rep) {
         val average = rep.bestWindowSeconds?.let { bestAverage(repRawWatts, it) } ?: smoothedAverage()
@@ -465,7 +474,7 @@ class SessionRunner(val session: Session) {
         reps[reps.lastIndex] = rep.copy(recoverySeconds = sinceEnd, gateTimedOut = timedOut)
     }
 
-    private fun publish(elapsedSeconds: Long, watts: Int, hrBpm: Int?, gear: Int?) {
+    private fun publish(elapsedSeconds: Long, watts: Int?, hrBpm: Int?, gear: Int?) {
         val snapshot = reps.toList()
         if (finished) {
             _state.value = SessionState(
@@ -493,13 +502,13 @@ class SessionRunner(val session: Session) {
         val secondsIn = (elapsedSeconds - blockStartSeconds).toInt()
         val scored = block is Rep || block is Ramp
         val repNumber = snapshot.size + if (scored) 1 else 0
-        val liveAverage = if (scored && repTicks > 0) smoothedAverage() else null
+        val liveAverage = if (scored) smoothedAverage() else null
         val secondsLeft = when (block) {
             is Ramp -> block.stepSeconds - secondsIn % block.stepSeconds
             else -> block.fixedSeconds?.let { it - secondsIn }
         }
         val target = block.scoredTarget(secondsIn, rampStepIndex)
-        val band = target?.let { Band.of(watts, it) }
+        val band = if (watts != null && target != null) Band.of(watts, target) else null
         val gearNag = block is Rep && block.kind.gearNag &&
             secondsIn < GEAR_NAG_SECONDS && gearNagDue(repStartGear)
         val phase = when {
@@ -580,7 +589,7 @@ class SessionRunner(val session: Session) {
 
     private fun finishedLine(reps: List<RepResult>): String {
         if (reps.isEmpty()) return "Session complete"
-        return "Session complete · " + reps.joinToString(" / ") { it.averageWatts.toString() } + " W"
+        return "Session complete · " + reps.joinToString(" / ") { it.averageWatts?.toString() ?: "--" } + " W"
     }
 
     private fun clock(seconds: Int): String {
@@ -596,19 +605,22 @@ class SessionRunner(val session: Session) {
         const val GEAR_NAG_BELOW = 10
 
         /**
-         * The best rolling average of [window] consecutive values, rounded; the plain
-         * average if there are fewer than [window] values, 0 if there are none.
+         * The best rolling average over [window] consecutive seconds of [values], rounded.
+         * Missing readings (null) are left out of each window's average; a window with none
+         * does not count. Fewer seconds than [window]: the average of what there is. Null
+         * if there is no reading at all.
          */
-        fun bestAverage(values: List<Int>, window: Int): Int {
-            if (values.isEmpty()) return 0
-            if (values.size <= window) return values.average().roundToInt()
-            var sum = values.subList(0, window).sumOf { it.toLong() }
-            var best = sum
-            for (i in window until values.size) {
-                sum += values[i] - values[i - window]
-                if (sum > best) best = sum
+        fun bestAverage(values: List<Int?>, window: Int): Int? {
+            if (values.none { it != null }) return null
+            val span = minOf(window, values.size)
+            var best: Double? = null
+            for (start in 0..values.size - span) {
+                val present = values.subList(start, start + span).filterNotNull()
+                if (present.isEmpty()) continue
+                val average = present.average()
+                if (best == null || average > best) best = average
             }
-            return (best.toDouble() / window).roundToInt()
+            return best?.roundToInt()
         }
     }
 }

@@ -153,7 +153,10 @@ class SessionRunnerBlocksTest {
         assertEquals(listOf(700), after.reps.map { it.averageWatts })
         assertEquals("Sprint", session.blocks[0].label)
 
-        assertEquals(0, SessionRunner.bestAverage(emptyList(), 10))
+        assertNull(SessionRunner.bestAverage(emptyList(), 10))
+        assertNull(SessionRunner.bestAverage(listOf(null, null), 10))
+        // A missing second is left out of its window rather than counted as 0 W.
+        assertEquals(600, SessionRunner.bestAverage(listOf(100, 600, null, 600), 2))
         assertEquals(200, SessionRunner.bestAverage(listOf(100, 300), 10))
         assertEquals(550, SessionRunner.bestAverage(listOf(100, 500, 600, 200), 2))
     }

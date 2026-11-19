@@ -52,7 +52,7 @@ object SelfTest {
                         }
                         val reps = sessions.sumOf { db.dao().reps(it.id).size }
                         "history: ${sessions.size} sessions, $reps reps saved, $mismatches mismatches; " +
-                            tagCheck(activity.cacheDir)
+                            tagCheck(activity.cacheDir) + "; " + migrationCheck(activity)
                     } finally {
                         db.close()
                     }
@@ -84,6 +84,45 @@ object SelfTest {
         val result = controller.result.value!!
         Log.i(TAG, "${lib.id}: ${result.reps.size} reps · ${result.verdict}")
         result
+    }
+
+    /**
+     * Writes a version-1 database exactly as Room 1 left it (schema, identity hash, one
+     * session with two reps), opens it with the current Room, and checks the migration kept
+     * every row and now accepts a rep with no power.
+     */
+    private suspend fun migrationCheck(context: android.content.Context): String {
+        val name = "mywatt-migrate-selftest.db"
+        context.deleteDatabase(name)
+        val raw = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath(name), null)
+        listOf(
+            "CREATE TABLE `session_results` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startedAtMs` INTEGER NOT NULL, `endedAtMs` INTEGER NOT NULL, `sessionId` TEXT NOT NULL, `sessionName` TEXT NOT NULL, `ftpWatts` INTEGER, `recoverySetting` TEXT NOT NULL, `completed` INTEGER NOT NULL, `verdict` TEXT NOT NULL, `ftpEstimate` INTEGER)",
+            "CREATE TABLE `rep_results` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sessionRecordId` INTEGER NOT NULL, `repNumber` INTEGER NOT NULL, `targetWatts` INTEGER NOT NULL, `seconds` INTEGER NOT NULL, `averageWatts` INTEGER NOT NULL, `gear` INTEGER, `preHr` INTEGER, `peakHr` INTEGER, `gateHr` INTEGER, `hrAt60` INTEGER, `hrr60` INTEGER, `minuteDrops` TEXT NOT NULL, `recoverySeconds` INTEGER, `gateTimedOut` INTEGER NOT NULL, FOREIGN KEY(`sessionRecordId`) REFERENCES `session_results`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+            "CREATE INDEX `index_rep_results_sessionRecordId` ON `rep_results` (`sessionRecordId`)",
+            "CREATE TABLE room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+            "INSERT INTO room_master_table (id,identity_hash) VALUES(42, '8566bb952d2f4f966e34e7377c1313d1')",
+            "INSERT INTO session_results VALUES (1, 1000, 2000, 'vo2-5x5', 'VO2 5x5', 200, 'Building', 1, 'v1 verdict', NULL)",
+            "INSERT INTO rep_results VALUES (1, 1, 1, 216, 300, 214, 12, 120, 175, 147, 140, 35, '35 9', 80, 0)",
+            "INSERT INTO rep_results VALUES (2, 1, 2, 216, 300, 220, 13, 125, 178, 151, 150, 28, '28', 95, 1)",
+        ).forEach { raw.execSQL(it) }
+        raw.version = 1
+        raw.close()
+
+        val db = HistoryDatabase.open(context, name)
+        return try {
+            val back = db.dao().sessionWithReps(1)!!
+            val keptOk = back.session.verdict == "v1 verdict" &&
+                back.repResults.map { it.averageWatts } == listOf(214, 220) &&
+                back.repResults.map { it.minuteDrops } == listOf(listOf(35, 9), listOf(28)) &&
+                back.repResults[1].gateTimedOut
+            val noPower = SessionResult("x", listOf(back.repResults[0].copy(averageWatts = null)), true)
+            val id = db.dao().insert(noPower, 3000, 4000)
+            val nullOk = db.dao().sessionWithReps(id)!!.repResults.single().averageWatts == null
+            "migration v1->v2 ${if (keptOk && nullOk) "ok" else "FAILED (kept=$keptOk null=$nullOk)"}"
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
     }
 
     /** Opens a scratch log, tags it with a session id and checks the rename kept every row. */

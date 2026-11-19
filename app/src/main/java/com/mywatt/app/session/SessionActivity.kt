@@ -122,7 +122,8 @@ class SessionActivity : AppCompatActivity() {
         }
         binding.statusLine.text = when {
             paused -> getString(R.string.session_paused)
-            live == null -> getString(R.string.session_waiting)
+            live?.smoothedWatts == null && state.targetWatts != null ->
+                state.statusLine + " · " + getString(R.string.session_no_power)
             else -> state.statusLine
         }
 

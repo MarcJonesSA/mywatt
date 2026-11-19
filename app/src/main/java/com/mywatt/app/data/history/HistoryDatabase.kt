@@ -8,6 +8,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.mywatt.app.engine.SessionResult
 
 @Dao
@@ -45,7 +47,7 @@ abstract class HistoryDao {
 }
 
 /** The training history: one row per session, one per rep. */
-@Database(entities = [SessionRecord::class, RepRecord::class], version = 1, exportSchema = false)
+@Database(entities = [SessionRecord::class, RepRecord::class], version = 2, exportSchema = false)
 abstract class HistoryDatabase : RoomDatabase() {
     abstract fun dao(): HistoryDao
 
@@ -60,6 +62,39 @@ abstract class HistoryDatabase : RoomDatabase() {
 
         /** Opens the database in [fileName]; [get] for the app's own history. */
         fun open(context: Context, fileName: String): HistoryDatabase =
-            Room.databaseBuilder(context.applicationContext, HistoryDatabase::class.java, fileName).build()
+            Room.databaseBuilder(context.applicationContext, HistoryDatabase::class.java, fileName)
+                .addMigrations(MIGRATION_1_2)
+                .build()
+
+        /**
+         * Version 2 lets a rep's averageWatts be null (a rep with no power data). SQLite
+         * cannot drop NOT NULL in place, so the table is rebuilt and every row copied.
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE `rep_results_new` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`sessionRecordId` INTEGER NOT NULL, `repNumber` INTEGER NOT NULL, " +
+                        "`targetWatts` INTEGER NOT NULL, `seconds` INTEGER NOT NULL, `averageWatts` INTEGER, " +
+                        "`gear` INTEGER, `preHr` INTEGER, `peakHr` INTEGER, `gateHr` INTEGER, `hrAt60` INTEGER, " +
+                        "`hrr60` INTEGER, `minuteDrops` TEXT NOT NULL, `recoverySeconds` INTEGER, " +
+                        "`gateTimedOut` INTEGER NOT NULL, FOREIGN KEY(`sessionRecordId`) " +
+                        "REFERENCES `session_results`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "INSERT INTO `rep_results_new` (`id`, `sessionRecordId`, `repNumber`, `targetWatts`, " +
+                        "`seconds`, `averageWatts`, `gear`, `preHr`, `peakHr`, `gateHr`, `hrAt60`, `hrr60`, " +
+                        "`minuteDrops`, `recoverySeconds`, `gateTimedOut`) SELECT `id`, `sessionRecordId`, " +
+                        "`repNumber`, `targetWatts`, `seconds`, `averageWatts`, `gear`, `preHr`, `peakHr`, " +
+                        "`gateHr`, `hrAt60`, `hrr60`, `minuteDrops`, `recoverySeconds`, `gateTimedOut` " +
+                        "FROM `rep_results`"
+                )
+                db.execSQL("DROP TABLE `rep_results`")
+                db.execSQL("ALTER TABLE `rep_results_new` RENAME TO `rep_results`")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_rep_results_sessionRecordId` ON `rep_results` (`sessionRecordId`)"
+                )
+            }
+        }
     }
 }

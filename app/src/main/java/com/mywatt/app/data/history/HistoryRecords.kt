@@ -48,7 +48,8 @@ data class RepRecord(
     val repNumber: Int,
     val targetWatts: Int,
     val seconds: Int,
-    val averageWatts: Int,
+    /** Null when the rep had no power data (since schema version 2). */
+    val averageWatts: Int?,
     val gear: Int?,
     val preHr: Int?,
     val peakHr: Int?,

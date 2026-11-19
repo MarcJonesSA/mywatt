@@ -37,9 +37,10 @@ object ResultsTable {
                     context,
                     listOf(
                         cell(context, rep.repNumber.toString(), primary, bold = true),
-                        cell(context, rep.averageWatts.toString(), primary, bold = true),
+                        cell(context, rep.averageWatts?.toString() ?: none, primary, bold = true),
                         cell(context, rep.targetWatts.toString(), primary, bold = false),
-                        cell(context, rep.band.label, bandColor(context, rep.band), bold = true),
+                        rep.band?.let { cell(context, it.label, bandColor(context, it), bold = true) }
+                            ?: cell(context, context.getString(R.string.results_no_power), secondary, bold = false),
                         cell(context, rep.peakHr?.toString() ?: none, primary, bold = false),
                         cell(context, rep.recoverySeconds?.toString() ?: none, primary, bold = false),
                         cell(

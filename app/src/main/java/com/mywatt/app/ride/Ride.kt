@@ -71,6 +71,52 @@ class Ride private constructor(context: Context) {
         observeRideLogging()
         observeConnectionClock()
         observeSessions()
+        startSessionClock()
+    }
+
+    /** This second's readings, any of which may be null (no bike, no strap, stale data). */
+    private class Readings(
+        val raw: Int?,
+        val smoothed: Int?,
+        val cadence: Int?,
+        val gear: GearReading?,
+        val hr: HeartRateMeasurement?,
+    )
+
+    private fun readNow(now: Long): Readings {
+        val sample = bluetooth.liveSample.value
+        val fresh = sample != null && now - sample.receivedAtElapsedMs <= BluetoothManager.STALE_AFTER_MS
+        val data = if (fresh) sample?.data else null
+        return Readings(
+            raw = data?.instantaneousPowerWatts?.coerceAtLeast(0),
+            smoothed = if (fresh) smoother.average(now) else null,
+            cadence = data?.instantaneousCadenceRpm?.roundToInt(),
+            gear = currentGear(),
+            hr = currentHeartRate(now),
+        )
+    }
+
+    /**
+     * The training session's clock: a 1 Hz wall-clock tick that runs for the life of the
+     * ride whether or not the bike is connected or sending, so a session never freezes on
+     * missing data. Each tick feeds whatever readings exist (possibly none) to the session
+     * and publishes them for the session screen. Ticks are scheduled against the
+     * monotonic clock so they do not drift.
+     */
+    private fun startSessionClock() {
+        scope.launch {
+            var next = SystemClock.elapsedRealtime()
+            while (isActive) {
+                val now = SystemClock.elapsedRealtime()
+                val r = readNow(now)
+                ActiveSession.controller.value?.tick(r.smoothed, r.hr?.bpm, r.gear?.gear, r.raw, r.cadence)
+                ActiveSession.publishLive(
+                    LiveReadout(r.smoothed, r.hr?.bpm, r.hr?.contactLost == true, r.gear, r.cadence)
+                )
+                next += SESSION_TICK_MS
+                delay((next - SystemClock.elapsedRealtime()).coerceAtLeast(0))
+            }
+        }
     }
 
     /**
@@ -182,14 +228,12 @@ class Ride private constructor(context: Context) {
         rideLogJob = scope.launch {
             while (isActive) {
                 val now = SystemClock.elapsedRealtime()
-                val sample = bluetooth.liveSample.value
-                val fresh = sample != null && now - sample.receivedAtElapsedMs <= BluetoothManager.STALE_AFTER_MS
-                val data = if (fresh) sample?.data else null
-                val raw = data?.instantaneousPowerWatts?.coerceAtLeast(0)
-                val smoothed = if (fresh) smoother.average(now) else null
-                val cadence = data?.instantaneousCadenceRpm?.roundToInt()
-                val gear = currentGear()
-                val hr = currentHeartRate(now)
+                val r = readNow(now)
+                val raw = r.raw
+                val smoothed = r.smoothed
+                val cadence = r.cadence
+                val gear = r.gear
+                val hr = r.hr
                 val rr = pendingRrMs.toList().also { pendingRrMs.clear() }
                 val elapsed = (now - startedAt) / 1000L
                 // The engine hands back a result only on a completing second: at 60 s one
@@ -197,12 +241,9 @@ class Ride private constructor(context: Context) {
                 val completed = recovery.onSecond(elapsed, hr?.bpm, smoothed)
                 val hrr60 = completed?.takeIf { it.hrr120 == null }?.hrr60
                 val hrr120 = completed?.hrr120
-                // The training session, if one is running, is driven from this same loop
-                // and the row records which block it is in.
-                val controller = ActiveSession.controller.value
-                controller?.tick(smoothed, hr?.bpm, gear?.gear, raw, cadence)
-                val session = controller?.takeIf { !it.ended }?.state?.value
-                ActiveSession.publishLive(LiveReadout(smoothed, hr?.bpm, hr?.contactLost == true, gear, cadence))
+                // The session runs on its own clock (startSessionClock); the row records
+                // which block it is in.
+                val session = ActiveSession.controller.value?.takeIf { !it.ended }?.state?.value
                 withContext(Dispatchers.IO) {
                     runCatching {
                         log.append(
@@ -222,7 +263,6 @@ class Ride private constructor(context: Context) {
         rideLogJob = null
         rideLog?.close()
         rideLog = null
-        ActiveSession.publishLive(null)
     }
 
     private fun shutdown() {
@@ -233,6 +273,7 @@ class Ride private constructor(context: Context) {
 
     companion object {
         private const val LOG_INTERVAL_MS = 1_000L
+        private const val SESSION_TICK_MS = 1_000L
         private const val TAG = "Ride"
 
         private var instance: Ride? = null

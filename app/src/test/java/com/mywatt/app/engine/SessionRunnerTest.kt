@@ -101,7 +101,7 @@ class SessionRunnerTest {
         assertEquals(Band.GREEN, rep1.band)
         assertEquals(12, rep1.gear)
         assertEquals(120, rep1.preHr)
-        assertEquals(1.0, rep1.fractionOfTarget, 1e-9)
+        assertEquals(1.0, rep1.fractionOfTarget!!, 1e-9)
         assertNull(rep1.hrr60)
         assertNull(rep1.recoverySeconds)
         assertFalse(rep1.gateTimedOut)
@@ -208,15 +208,15 @@ class SessionRunnerTest {
         List(10) { Tick(80, 100) } + List(20, repTick) + List(recoverySeconds, recoveryTick) + List(20) { Tick(80, 100) }
 
     @Test
-    fun `missing power counts as zero in the rep average`() {
+    fun `seconds without power are left out of the rep average, not counted as zero`() {
         val ride = shortRide(
             repTick = { i -> Tick(if (i < 10) 200 else null, 140) },
             recoveryTick = { Tick(80, 100) },
             recoverySeconds = 120,
         )
         val states = drive(SessionRunner(short()), ride)
-        assertEquals(100, states[30].reps[0].averageWatts)
-        assertEquals(Band.RED, states[30].reps[0].band)
+        assertEquals(200, states[30].reps[0].averageWatts)
+        assertEquals(Band.GREEN, states[30].reps[0].band)
     }
 
     @Test
