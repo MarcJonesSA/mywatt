@@ -1,6 +1,7 @@
 package com.mywatt.app.ui
 
 import android.app.Activity
+import android.content.Intent
 import android.view.View
 import android.widget.RadioGroup
 import android.widget.Toast
@@ -12,6 +13,7 @@ import com.mywatt.app.data.RiderSettings
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.mywatt.app.engine.CueSettings
 import com.mywatt.app.engine.RecoverySetting
+import com.mywatt.app.profile.ProfileActivity
 import com.mywatt.app.ride.Ride
 import kotlin.math.roundToInt
 
@@ -67,7 +69,7 @@ fun showSettingsDialog(
 
     fun complain(text: String) = Toast.makeText(activity, text, Toast.LENGTH_LONG).show()
 
-    MaterialAlertDialogBuilder(activity)
+    val dialog = MaterialAlertDialogBuilder(activity)
         .setTitle(title)
         .setMessage(message)
         .setView(view)
@@ -109,4 +111,10 @@ fun showSettingsDialog(
             onSaved()
         }
         .show()
+    view.findViewById<View>(R.id.profileButton).setOnClickListener {
+        // The profile edits FTP too, so the dialog closes rather than show a stale value.
+        dialog.dismiss()
+        onCancelled()
+        activity.startActivity(Intent(activity, ProfileActivity::class.java))
+    }
 }

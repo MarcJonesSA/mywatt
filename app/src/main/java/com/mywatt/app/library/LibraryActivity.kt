@@ -47,6 +47,12 @@ class LibraryActivity : AppCompatActivity() {
         if (!settings.isFtpSet && savedInstanceState == null) askForFtpFirst()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // FTP can change in the profile screen, opened from settings.
+        renderFtp()
+    }
+
     private fun renderFtp() {
         binding.ftpButton.text = getString(R.string.ftp_button, settings.ftpWatts)
     }

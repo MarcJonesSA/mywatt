@@ -33,7 +33,9 @@ import com.mywatt.app.data.PowerSmoother
 import com.mywatt.app.data.PowerZones
 import com.mywatt.app.data.RiderSettings
 import com.mywatt.app.databinding.ActivityMainBinding
+import com.mywatt.app.data.RiderProfile
 import com.mywatt.app.debug.SelfTest
+import com.mywatt.app.profile.OnboardingActivity
 import com.mywatt.app.engine.HeartRateRecovery
 import com.mywatt.app.ride.Ride
 import com.mywatt.app.session.ActiveSession
@@ -115,6 +117,11 @@ class MainActivity : AppCompatActivity() {
         binding.mainScroll?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitDialAboveFold() }
 
         // Debug builds only: adb can start a check of the history and ride-log plumbing.
+        // First launch: the two entry questions, once.
+        val selfTest = BuildConfig.DEBUG && intent?.getStringExtra(SelfTest.EXTRA) != null
+        if (savedInstanceState == null && !selfTest && !RiderProfile(this).entryQuestionsDone) {
+            startActivity(Intent(this, OnboardingActivity::class.java))
+        }
         if (BuildConfig.DEBUG && savedInstanceState == null &&
             intent?.getStringExtra(SelfTest.EXTRA) == "history"
         ) {

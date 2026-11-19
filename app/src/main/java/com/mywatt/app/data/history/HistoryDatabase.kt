@@ -32,6 +32,10 @@ abstract class HistoryDao {
     @Query("SELECT * FROM session_results ORDER BY startedAtMs DESC, id DESC")
     abstract suspend fun sessions(): List<SessionRecord>
 
+    /** The highest HR recorded in any saved session (a rep's peak); null if none has HR. */
+    @Query("SELECT MAX(peakHr) FROM rep_results")
+    abstract suspend fun highestHr(): Int?
+
     @Query("SELECT * FROM session_results WHERE id = :id")
     abstract suspend fun session(id: Long): SessionRecord?
 

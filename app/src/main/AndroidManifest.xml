@@ -52,6 +52,17 @@
             android:theme="@style/Theme.MyWatt" />
 
         <activity
+            android:name=".profile.ProfileActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.MyWatt" />
+
+        <activity
+            android:name=".profile.OnboardingActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyWatt" />
+
+        <activity
             android:name=".library.LibraryActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity"
