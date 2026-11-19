@@ -5,7 +5,6 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background"
-    android:fitsSystemWindows="true"
     tools:context=".session.SessionActivity">
 
     <!-- The live page. Its background is tinted by band during a rep. -->
@@ -72,6 +71,7 @@
             tools:text="247" />
 
         <TextView
+            android:id="@+id/wattsUnit"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_horizontal"

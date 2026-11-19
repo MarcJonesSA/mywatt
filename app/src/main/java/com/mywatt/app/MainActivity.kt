@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -31,21 +32,18 @@ import com.mywatt.app.bluetooth.HeartRateState
 import com.mywatt.app.bluetooth.ScannedDevice
 import com.mywatt.app.data.PowerSmoother
 import com.mywatt.app.data.PowerZones
-import com.mywatt.app.data.RideLog
 import com.mywatt.app.data.RiderSettings
 import com.mywatt.app.databinding.ActivityMainBinding
 import com.mywatt.app.engine.HeartRateRecovery
 import com.mywatt.app.engine.Session
+import com.mywatt.app.ride.Ride
 import com.mywatt.app.session.ActiveSession
-import com.mywatt.app.session.LiveReadout
 import com.mywatt.app.session.SessionActivity
+import com.mywatt.app.ui.padForSystemBars
 import com.mywatt.app.ui.shareLatestLogs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -56,32 +54,17 @@ import kotlin.math.roundToInt
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var settings: RiderSettings
-    private lateinit var bluetooth: BluetoothManager
+
+    /** The ride itself (Bluetooth, smoother, log); lives outside this Activity so rotation keeps it. */
+    private lateinit var ride: Ride
+    private val settings: RiderSettings get() = ride.settings
+    private val bluetooth: BluetoothManager get() = ride.bluetooth
+    private val smoother: PowerSmoother get() = ride.smoother
+    private val recovery: HeartRateRecovery get() = ride.recovery
 
     private var devicePickerDialog: AlertDialog? = null
     private var pickerDevices: List<ScannedDevice> = emptyList()
     private val pickerRows = ArrayList<View>()
-
-    /** 60 s and 120 s heart-rate recovery after each effort, fed from the 1 Hz ride-log loop. */
-    private val recovery = HeartRateRecovery()
-
-    /**
-     * Rolling average of raw power. Everything the rider looks at for power (needle, main
-     * watts number, zone chip, any future target comparison) reads from here; the raw
-     * value stays on [BluetoothManager.liveSample] for logging.
-     */
-    private lateinit var smoother: PowerSmoother
-
-    /** Fallback ride clock, used when the trainer does not report elapsed time itself. */
-    private var sessionStartedAtElapsedMs: Long? = null
-
-    /** The CSV being written for the current connection, and the 1 Hz job feeding it. */
-    private var rideLog: RideLog? = null
-    private var rideLogJob: Job? = null
-
-    /** RR intervals received since the last CSV row was written. Main thread only. */
-    private val pendingRrMs = ArrayList<Int>()
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -105,15 +88,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.root.padForSystemBars()
 
         // Nobody wants the screen dozing off mid-interval.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        settings = RiderSettings(this)
-        bluetooth = BluetoothManager(this)
-        smoother = PowerSmoother(settings.smoothingSeconds)
+        val firstScreen = !Ride.exists
+        ride = Ride.get(this)
 
         binding.revCounter.setFtp(settings.ftpWatts)
         binding.ftpButton.text = getString(R.string.ftp_button, settings.ftpWatts)
@@ -124,14 +108,13 @@ class MainActivity : AppCompatActivity() {
 
         renderZone(null)
         observeConnection()
-        observeLiveSamples()
-        observeHeartRate()
-        observeRideLogging()
         startDisplayRefresh()
 
-        // Reconnect to the bike and strap from last time without a tap. First-run users
-        // (nothing remembered, or permissions not yet granted) still start from the button.
-        if (bluetooth.hasRememberedDevices() &&
+        // Reconnect to the bike and strap from last time without a tap, but only on a fresh
+        // start: after a rotation the ride is already up. First-run users (nothing
+        // remembered, or permissions not yet granted) still start from the button.
+        if (firstScreen &&
+            bluetooth.hasRememberedDevices() &&
             bluetooth.hasPermissions() &&
             bluetooth.isBluetoothEnabled()
         ) {
@@ -149,8 +132,8 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         devicePickerDialog?.dismiss()
         devicePickerDialog = null
-        stopRideLog()
-        bluetooth.release()
+        // A rotation recreates this screen; only a real exit ends the ride.
+        if (isFinishing && !isChangingConfigurations) Ride.release()
         super.onDestroy()
     }
 
@@ -160,7 +143,7 @@ class MainActivity : AppCompatActivity() {
         when (bluetooth.connectionState.value) {
             is ConnectionState.Idle, is ConnectionState.Error -> beginConnect()
             else -> {
-                sessionStartedAtElapsedMs = null
+                ride.connectedAtElapsedMs = null
                 bluetooth.disconnect()
             }
         }
@@ -175,7 +158,7 @@ class MainActivity : AppCompatActivity() {
             enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
-        sessionStartedAtElapsedMs = null
+        ride.connectedAtElapsedMs = null
         bluetooth.startScan()
     }
 
@@ -205,51 +188,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Accumulates RR intervals from every strap notification for the next CSV row. */
-    private fun observeHeartRate() {
-        lifecycleScope.launch {
-            bluetooth.heartRate.sample.collect { sample ->
-                if (sample != null) pendingRrMs += sample.measurement.rrIntervalsMs
-            }
-        }
-    }
+    private fun currentGear(): GearReading? = ride.currentGear()
 
-    /**
-     * Feeds every raw power reading into the smoother as it lands, independent of the 1 Hz
-     * repaint, so the window really does cover the last N seconds of notifications.
-     */
-    private fun observeLiveSamples() {
-        lifecycleScope.launch {
-            bluetooth.liveSample.collect { sample ->
-                if (sample == null) {
-                    smoother.clear()
-                    return@collect
-                }
-                val raw = sample.data.instantaneousPowerWatts ?: return@collect
-                smoother.add(
-                    raw.coerceAtLeast(0),
-                    sample.receivedAtElapsedMs,
-                    sample.data.instantaneousCadenceRpm,
-                )
-            }
-        }
-    }
-
-    /**
-     * The gear to show and log, shared by the screen and the CSV so grey/white always matches
-     * gear_confirmed. While connected this is the bike's reading: gear 7 unconfirmed until
-     * the first notification, then whatever the Atom sends. Disconnected, there is none.
-     */
-    private fun currentGear(): GearReading? =
-        if (bluetooth.connectionState.value is ConnectionState.Connected) bluetooth.gear.value else null
-
-    /** The strap's latest measurement, or null when no strap is connected or it has gone quiet. */
-    private fun currentHeartRate(nowMs: Long): HeartRateMeasurement? {
-        if (bluetooth.heartRate.state.value !is HeartRateState.Connected) return null
-        val sample = bluetooth.heartRate.sample.value ?: return null
-        if (nowMs - sample.receivedAtElapsedMs > BluetoothManager.STALE_AFTER_MS) return null
-        return sample.measurement
-    }
+    private fun currentHeartRate(nowMs: Long): HeartRateMeasurement? = ride.currentHeartRate(nowMs)
 
     private fun renderConnectionState(state: ConnectionState) {
         val connected = state is ConnectionState.Connected
@@ -294,9 +235,6 @@ class MainActivity : AppCompatActivity() {
             }
         )
 
-        if (connected && sessionStartedAtElapsedMs == null) {
-            sessionStartedAtElapsedMs = SystemClock.elapsedRealtime()
-        }
         refreshPickerRows()
     }
 
@@ -520,79 +458,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun formatElapsed(reportedSeconds: Int?): String {
         val seconds = reportedSeconds
-            ?: sessionStartedAtElapsedMs?.let {
+            ?: ride.connectedAtElapsedMs?.let {
                 ((SystemClock.elapsedRealtime() - it) / 1000L).toInt()
             }
             ?: return getString(R.string.no_reading)
         return String.format(Locale.UK, "%d:%02d", seconds / 60, seconds % 60)
-    }
-
-    // --------------------------------------------------------------- ride log
-
-    /**
-     * Opens a new CSV every time the connection comes up and closes it when it goes away,
-     * so a reconnect after a drop starts a fresh file. Runs for the life of the Activity
-     * rather than only while it is visible, so a backgrounded ride keeps logging.
-     */
-    private fun observeRideLogging() {
-        lifecycleScope.launch {
-            bluetooth.connectionState.collect { state ->
-                if (state is ConnectionState.Connected) startRideLog() else stopRideLog()
-            }
-        }
-    }
-
-    private fun startRideLog() {
-        if (rideLog != null) return
-        val log = runCatching { RideLog.start(this) }.getOrNull() ?: return
-        rideLog = log
-        pendingRrMs.clear()
-        recovery.reset()
-        val startedAt = SystemClock.elapsedRealtime()
-        rideLogJob = lifecycleScope.launch {
-            while (isActive) {
-                val now = SystemClock.elapsedRealtime()
-                val sample = bluetooth.liveSample.value
-                val fresh = sample != null && now - sample.receivedAtElapsedMs <= BluetoothManager.STALE_AFTER_MS
-                val data = if (fresh) sample?.data else null
-                val raw = data?.instantaneousPowerWatts?.coerceAtLeast(0)
-                val smoothed = if (fresh) smoother.average(now) else null
-                val cadence = data?.instantaneousCadenceRpm?.roundToInt()
-                val gear = currentGear()
-                val hr = currentHeartRate(now)
-                val rr = pendingRrMs.toList().also { pendingRrMs.clear() }
-                val elapsed = (now - startedAt) / 1000L
-                // The engine hands back a result only on a completing second: at 60 s one
-                // without hrr120, at 120 s one with it. Each lands in its own column.
-                val completed = recovery.onSecond(elapsed, hr?.bpm, smoothed)
-                val hrr60 = completed?.takeIf { it.hrr120 == null }?.hrr60
-                val hrr120 = completed?.hrr120
-                // The training session, if one is running, is driven from this same loop
-                // and the row records which block it is in.
-                val controller = ActiveSession.controller.value
-                controller?.tick(smoothed, hr?.bpm, gear?.gear)
-                val session = controller?.takeIf { !it.ended }?.state?.value
-                ActiveSession.publishLive(LiveReadout(smoothed, hr?.bpm, hr?.contactLost == true, gear))
-                withContext(Dispatchers.IO) {
-                    runCatching {
-                        log.append(
-                            elapsed, raw, smoothed, cadence, gear?.gear, gear?.confirmed == true,
-                            hr?.bpm, rr, hrr60, hrr120,
-                            session?.blockTag, session?.targetWatts, session?.band?.tag,
-                        )
-                    }
-                }
-                delay(LOG_INTERVAL_MS)
-            }
-        }
-    }
-
-    private fun stopRideLog() {
-        rideLogJob?.cancel()
-        rideLogJob = null
-        rideLog?.close()
-        rideLog = null
-        ActiveSession.publishLive(null)
     }
 
     // ------------------------------------------------------- training session
@@ -695,7 +565,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REFRESH_INTERVAL_MS = 1_000L
-        private const val LOG_INTERVAL_MS = 1_000L
         private const val ZONE_CHIP_BACKGROUND_ALPHA = 38
     }
 }

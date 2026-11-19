@@ -14,6 +14,7 @@ import androidx.annotation.ColorInt
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -25,6 +26,7 @@ import com.mywatt.app.engine.RecoveryPhase
 import com.mywatt.app.engine.SessionController
 import com.mywatt.app.engine.SessionResult
 import com.mywatt.app.engine.SessionState
+import com.mywatt.app.ui.padForSystemBars
 import com.mywatt.app.ui.shareLatestLogs
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -49,8 +51,10 @@ class SessionActivity : AppCompatActivity() {
             return
         }
         controller = active
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         binding = ActivitySessionBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.root.padForSystemBars()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         binding.pauseButton.setOnClickListener { controller.togglePause() }
@@ -116,7 +120,8 @@ class SessionActivity : AppCompatActivity() {
 
         val background = ContextCompat.getColor(this, R.color.background)
         val band = state.band?.takeIf { live?.smoothedWatts != null }
-        binding.livePanel.setBackgroundColor(
+        // Portrait tints the whole page; landscape only the watts column.
+        (binding.bandPanel ?: binding.livePanel).setBackgroundColor(
             if (band != null) ColorUtils.blendARGB(background, bandColor(band), BAND_TINT) else background
         )
         binding.gearNag.visibility = if (state.gearNag) View.VISIBLE else View.INVISIBLE
