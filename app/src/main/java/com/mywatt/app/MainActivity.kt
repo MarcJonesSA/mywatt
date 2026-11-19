@@ -10,6 +10,7 @@ import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +23,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.radiobutton.MaterialRadioButton
 import com.google.android.material.textfield.TextInputEditText
 import com.mywatt.app.bluetooth.BluetoothManager
 import com.mywatt.app.bluetooth.ConnectionState
@@ -35,6 +37,7 @@ import com.mywatt.app.data.PowerZones
 import com.mywatt.app.data.RiderSettings
 import com.mywatt.app.databinding.ActivityMainBinding
 import com.mywatt.app.engine.HeartRateRecovery
+import com.mywatt.app.engine.RecoverySetting
 import com.mywatt.app.engine.Session
 import com.mywatt.app.ride.Ride
 import com.mywatt.app.session.ActiveSession
@@ -497,7 +500,7 @@ class MainActivity : AppCompatActivity() {
                     return@setPositiveButton
                 }
                 settings.sessionTargetWatts = target
-                ActiveSession.start(Session.threeByOne(target))
+                ActiveSession.start(Session.threeByOne(target, settings.recoverySetting))
                 startActivity(Intent(this, SessionActivity::class.java))
             }
             .show()
@@ -512,6 +515,22 @@ class MainActivity : AppCompatActivity() {
         input.setSelection(input.text?.length ?: 0)
         val smoothingInput = view.findViewById<TextInputEditText>(R.id.smoothingInput)
         smoothingInput.setText(settings.smoothingSeconds.toString())
+        val recoveryGroup = view.findViewById<RadioGroup>(R.id.recoverySettingGroup)
+        RecoverySetting.entries.forEach { setting ->
+            recoveryGroup.addView(
+                MaterialRadioButton(this).apply {
+                    id = View.generateViewId()
+                    tag = setting
+                    text = getString(
+                        R.string.recovery_setting_option,
+                        setting.label,
+                        (setting.releaseFraction * 100).roundToInt(),
+                        setting.minRecoverySeconds,
+                    )
+                    isChecked = setting == settings.recoverySetting
+                }
+            )
+        }
 
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.ftp_dialog_title)
@@ -555,6 +574,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 settings.ftpWatts = entered
                 settings.smoothingSeconds = smoothing
+                recoveryGroup.findViewById<View>(recoveryGroup.checkedRadioButtonId)
+                    ?.let { settings.recoverySetting = it.tag as RecoverySetting }
                 smoother.windowSeconds = smoothing
                 binding.ftpButton.text = getString(R.string.ftp_button, entered)
                 binding.revCounter.setFtp(entered)

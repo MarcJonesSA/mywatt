@@ -33,13 +33,12 @@ data class CoolDown(val seconds: Int) : Block {
 }
 
 /**
- * The rule that ends a gated [Recovery].
+ * The rule that ends a gated [Recovery], set by the rider's [RecoverySetting].
  *
  * The rep's HR rise is its peak HR minus the HR on its first second. The gate opens on the
  * first second, at least [minSeconds] after the rep ended, on which HR is at or below
- * peak minus [recoveredFraction] of that rise, i.e. half the rise has been recovered by
- * default. [minSeconds] defaults to 60 s so the peak has time to form (HR keeps climbing
- * for up to 30 s after the legs stop) and so every rep gets a 60 s recovery reading.
+ * peak minus [recoveredFraction] of that rise. HR keeps climbing for up to 30 s after the
+ * legs stop, so no setting lets the gate open before the peak is fixed.
  *
  * If HR never gets there the gate opens at [maxSeconds] and the rep is marked as having
  * timed out. If there is no strap, or the strap goes quiet for more than
@@ -47,15 +46,19 @@ data class CoolDown(val seconds: Int) : Block {
  * at [fallbackSeconds].
  */
 data class HrGate(
-    val recoveredFraction: Double = DEFAULT_RECOVERED_FRACTION,
-    val minSeconds: Int = DEFAULT_MIN_SECONDS,
-    val maxSeconds: Int = DEFAULT_MAX_SECONDS,
+    val setting: RecoverySetting = RecoverySetting.DEFAULT,
     val fallbackSeconds: Int = DEFAULT_FALLBACK_SECONDS,
+    /** The setting's timeout unless overridden. */
+    val maxSeconds: Int = setting.timeoutSeconds,
 ) {
+    /** Share of the rise that must be recovered, from [setting]. */
+    val recoveredFraction: Double get() = setting.releaseFraction
+
+    /** Shortest recovery, from [setting]. */
+    val minSeconds: Int get() = setting.minRecoverySeconds
+
     init {
-        require(recoveredFraction > 0.0 && recoveredFraction <= 1.0) { "recoveredFraction must be in (0, 1]" }
-        require(minSeconds >= 0) { "minSeconds must not be negative" }
-        require(maxSeconds >= minSeconds) { "maxSeconds must be at least minSeconds" }
+        require(maxSeconds >= setting.minRecoverySeconds) { "maxSeconds must be at least minSeconds" }
         require(fallbackSeconds > 0) { "fallbackSeconds must be positive" }
     }
 
@@ -66,19 +69,24 @@ data class HrGate(
     fun thresholdHr(preHr: Int?, peakHr: Int?): Int? {
         if (preHr == null || peakHr == null) return null
         val rise = (peakHr - preHr).coerceAtLeast(0)
-        return kotlin.math.floor(peakHr - rise * recoveredFraction).toInt()
+        // A hair of tolerance so 0.6 * 50 = 30.000000000000004 does not round a bpm away.
+        return kotlin.math.floor(peakHr - rise * recoveredFraction + 1e-9).toInt()
     }
 
     companion object {
-        const val DEFAULT_RECOVERED_FRACTION = 0.5
-        const val DEFAULT_MIN_SECONDS = 60
-        const val DEFAULT_MAX_SECONDS = 240
         const val DEFAULT_FALLBACK_SECONDS = 120
     }
 }
 
-/** A named, ordered list of blocks. */
-data class Session(val name: String, val blocks: List<Block>) {
+/**
+ * A named, ordered list of blocks. [recoverySetting] is the one its gated recoveries were
+ * built with, recorded with the result.
+ */
+data class Session(
+    val name: String,
+    val blocks: List<Block>,
+    val recoverySetting: RecoverySetting = RecoverySetting.DEFAULT,
+) {
 
     init {
         require(blocks.isNotEmpty()) { "a session needs at least one block" }
@@ -120,15 +128,18 @@ data class Session(val name: String, val blocks: List<Block>) {
          * The built-in session: 5 min warm-up, three times [1 min at [targetWatts], gated
          * recovery], then 3 min cool-down.
          */
-        fun threeByOne(targetWatts: Int = DEFAULT_TARGET_WATTS): Session {
+        fun threeByOne(
+            targetWatts: Int = DEFAULT_TARGET_WATTS,
+            setting: RecoverySetting = RecoverySetting.DEFAULT,
+        ): Session {
             val blocks = ArrayList<Block>()
             blocks += WarmUp(seconds = 300)
             repeat(3) {
                 blocks += Rep(seconds = 60, targetWatts = targetWatts)
-                blocks += Recovery()
+                blocks += Recovery(HrGate(setting))
             }
             blocks += CoolDown(seconds = 180)
-            return Session(THREE_BY_ONE_NAME, blocks)
+            return Session(THREE_BY_ONE_NAME, blocks, setting)
         }
     }
 }

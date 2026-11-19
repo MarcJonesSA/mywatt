@@ -9,13 +9,15 @@ data class SessionResult(
     val reps: List<RepResult>,
     /** True if every block ran to the end, false if the rider pressed End. */
     val completed: Boolean,
+    /** The recovery setting the session's HR gates used. */
+    val recoverySetting: RecoverySetting = RecoverySetting.DEFAULT,
 ) {
     /** One line summing the session up, e.g. "All 3 reps on target · Recovery 60 / 65 / 72 s". */
     val verdict: String get() = verdict(reps, completed)
 
     companion object {
         fun of(state: SessionState, completed: Boolean): SessionResult =
-            SessionResult(state.session.name, state.reps, completed)
+            SessionResult(state.session.name, state.reps, completed, state.session.recoverySetting)
 
         /**
          * The verdict text: how many reps were on target (green), the recovery times in

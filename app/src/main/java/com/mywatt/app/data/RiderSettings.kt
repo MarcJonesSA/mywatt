@@ -2,6 +2,7 @@ package com.mywatt.app.data
 
 import android.content.Context
 import androidx.core.content.edit
+import com.mywatt.app.engine.RecoverySetting
 
 /**
  * Rider preferences backed by SharedPreferences. FTP drives every zone boundary and the
@@ -33,6 +34,11 @@ class RiderSettings(context: Context) {
     var sessionTargetWatts: Int
         get() = prefs.getInt(KEY_SESSION_TARGET, DEFAULT_TARGET_WATTS).coerceIn(MIN_TARGET_WATTS, MAX_TARGET_WATTS)
         set(value) = prefs.edit { putInt(KEY_SESSION_TARGET, value.coerceIn(MIN_TARGET_WATTS, MAX_TARGET_WATTS)) }
+
+    /** How demanding the heart-rate gate is. Defaults to [RecoverySetting.DEFAULT] (Building). */
+    var recoverySetting: RecoverySetting
+        get() = RecoverySetting.fromName(prefs.getString(KEY_RECOVERY_SETTING, null))
+        set(value) = prefs.edit { putString(KEY_RECOVERY_SETTING, value.name) }
 
     /** Bluetooth address and name of the trainer ridden last, for reconnecting on launch. */
     var trainerAddress: String?
@@ -67,6 +73,7 @@ class RiderSettings(context: Context) {
         private const val KEY_FTP = "ftp_watts"
         private const val KEY_SMOOTHING_SECONDS = "smoothing_seconds"
         private const val KEY_SESSION_TARGET = "session_target_watts"
+        private const val KEY_RECOVERY_SETTING = "recovery_setting"
         private const val KEY_TRAINER_ADDRESS = "trainer_address"
         private const val KEY_TRAINER_NAME = "trainer_name"
         private const val KEY_STRAP_ADDRESS = "strap_address"

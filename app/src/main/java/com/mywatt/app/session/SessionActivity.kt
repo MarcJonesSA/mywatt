@@ -175,7 +175,8 @@ class SessionActivity : AppCompatActivity() {
         binding.livePanel.visibility = View.GONE
         binding.resultsPanel.visibility = View.VISIBLE
         binding.resultsTitle.setText(if (result.completed) R.string.session_complete else R.string.session_ended)
-        binding.verdictText.text = result.verdict
+        binding.verdictText.text = result.verdict + System.lineSeparator() +
+            getString(R.string.results_recovery_setting, result.recoverySetting.label)
 
         val table = binding.resultsTable
         table.removeAllViews()

@@ -78,9 +78,8 @@ class SessionTest {
         assertThrows(IllegalArgumentException::class.java) { Session("x", listOf(Rep(60, 0))) }
         assertThrows(IllegalArgumentException::class.java) { Session("x", listOf(Rep(0, 200))) }
         assertThrows(IllegalArgumentException::class.java) { Session("x", listOf(CoolDown(-1))) }
-        assertThrows(IllegalArgumentException::class.java) { HrGate(recoveredFraction = 0.0) }
-        assertThrows(IllegalArgumentException::class.java) { HrGate(recoveredFraction = 1.5) }
-        assertThrows(IllegalArgumentException::class.java) { HrGate(minSeconds = 100, maxSeconds = 90) }
+        assertThrows(IllegalArgumentException::class.java) { HrGate(maxSeconds = 59) }
+        assertThrows(IllegalArgumentException::class.java) { HrGate(RecoverySetting.Peak, maxSeconds = 29) }
         assertThrows(IllegalArgumentException::class.java) { HrGate(fallbackSeconds = 0) }
     }
 }
