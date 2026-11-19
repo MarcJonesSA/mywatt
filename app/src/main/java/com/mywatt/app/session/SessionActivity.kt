@@ -68,6 +68,8 @@ class SessionActivity : AppCompatActivity() {
 
         binding.profileStrip.setSession(controller.session)
         binding.pauseButton.setOnClickListener { controller.togglePause() }
+        binding.muteButton.setOnClickListener { ActiveSession.muted.value = !ActiveSession.muted.value }
+        binding.muteButton.visibility = if (RiderSettings(this).cueSettings.enabled) View.VISIBLE else View.GONE
         binding.endButton.setOnClickListener { controller.end() }
         binding.shareResultsButton.setOnClickListener { shareLatestLogs(this) }
         binding.doneButton.setOnClickListener { leave() }
@@ -92,6 +94,13 @@ class SessionActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 controller.result.collect { result -> if (result != null) renderResults(result) }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ActiveSession.muted.collect { muted ->
+                    binding.muteButton.setText(if (muted) R.string.cues_unmute else R.string.cues_mute)
+                }
             }
         }
     }

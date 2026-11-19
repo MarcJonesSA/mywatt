@@ -2,6 +2,7 @@ package com.mywatt.app.data
 
 import android.content.Context
 import androidx.core.content.edit
+import com.mywatt.app.engine.CueSettings
 import com.mywatt.app.engine.RecoverySetting
 
 /**
@@ -38,6 +39,23 @@ class RiderSettings(context: Context) {
         get() = RecoverySetting.fromName(prefs.getString(KEY_RECOVERY_SETTING, null))
         set(value) = prefs.edit { putString(KEY_RECOVERY_SETTING, value.name) }
 
+    /** Audio cues during a session: master switch (default on), per-tier switches, beep-only. */
+    var cueSettings: CueSettings
+        get() = CueSettings(
+            enabled = prefs.getBoolean(KEY_CUES_ON, true),
+            shortTier = prefs.getBoolean(KEY_CUES_SHORT, true),
+            midTier = prefs.getBoolean(KEY_CUES_MID, true),
+            longTier = prefs.getBoolean(KEY_CUES_LONG, true),
+            beepOnly = prefs.getBoolean(KEY_CUES_BEEP_ONLY, false),
+        )
+        set(value) = prefs.edit {
+            putBoolean(KEY_CUES_ON, value.enabled)
+            putBoolean(KEY_CUES_SHORT, value.shortTier)
+            putBoolean(KEY_CUES_MID, value.midTier)
+            putBoolean(KEY_CUES_LONG, value.longTier)
+            putBoolean(KEY_CUES_BEEP_ONLY, value.beepOnly)
+        }
+
     /** Bluetooth address and name of the trainer ridden last, for reconnecting on launch. */
     var trainerAddress: String?
         get() = prefs.getString(KEY_TRAINER_ADDRESS, null)
@@ -71,5 +89,10 @@ class RiderSettings(context: Context) {
         private const val KEY_TRAINER_NAME = "trainer_name"
         private const val KEY_STRAP_ADDRESS = "strap_address"
         private const val KEY_STRAP_NAME = "strap_name"
+        private const val KEY_CUES_ON = "cues_on"
+        private const val KEY_CUES_SHORT = "cues_short"
+        private const val KEY_CUES_MID = "cues_mid"
+        private const val KEY_CUES_LONG = "cues_long"
+        private const val KEY_CUES_BEEP_ONLY = "cues_beep_only"
     }
 }

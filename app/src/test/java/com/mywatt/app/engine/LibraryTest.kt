@@ -120,7 +120,7 @@ class LibraryTest {
     fun `gated recoveries use the rider's setting`() {
         val s = session("vo2-5x5").build(250, RecoverySetting.Peak)
         assertEquals(RecoverySetting.Peak, s.recoverySetting)
-        assertEquals(setOf(HrGate(RecoverySetting.Peak)), s.blocks.filterIsInstance<Recovery>().map { it.gate }.toSet())
+        assertEquals(setOf(HrGate(RecoverySetting.Peak, leadInSeconds = 10)), s.blocks.filterIsInstance<Recovery>().map { it.gate }.toSet())
         assertEquals(5, s.blocks.count { it is Recovery })
     }
 
@@ -157,7 +157,7 @@ class LibraryTest {
         val stepdown = session("stepdown").build(200).blocks
         assertEquals(
             listOf(WarmUp(300, 110)) +
-                List(3) { listOf(Rep(60, 260), Rep(60, 234), Rep(60, 210), Recovery()) }.flatten() +
+                List(3) { listOf(Rep(60, 260), Rep(60, 234), Rep(60, 210), Recovery(HrGate(leadInSeconds = 10))) }.flatten() +
                 CoolDown(180, 100),
             stepdown,
         )

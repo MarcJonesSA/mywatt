@@ -55,9 +55,13 @@ object ActiveSession {
         return true
     }
 
+    /** Cues silenced from the session screen; for this session only. */
+    val muted = MutableStateFlow(false)
+
     fun start(session: Session): SessionController {
         val controller = SessionController(session)
         ftpOfferAnswered = false
+        muted.value = false
         startedAtMs = System.currentTimeMillis()
         _controller.value = controller
         return controller

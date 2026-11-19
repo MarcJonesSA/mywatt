@@ -9,6 +9,8 @@ import com.google.android.material.radiobutton.MaterialRadioButton
 import com.google.android.material.textfield.TextInputEditText
 import com.mywatt.app.R
 import com.mywatt.app.data.RiderSettings
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.mywatt.app.engine.CueSettings
 import com.mywatt.app.engine.RecoverySetting
 import com.mywatt.app.ride.Ride
 import kotlin.math.roundToInt
@@ -49,6 +51,20 @@ fun showSettingsDialog(
         )
     }
 
+    val cues = settings.cueSettings
+    val cuesSwitch = view.findViewById<MaterialSwitch>(R.id.cuesSwitch)
+    val tierSwitches = listOf(R.id.cuesShortSwitch, R.id.cuesMidSwitch, R.id.cuesLongSwitch, R.id.cuesBeepSwitch)
+        .map { view.findViewById<MaterialSwitch>(it) }
+    val (shortSwitch, midSwitch, longSwitch, beepSwitch) = tierSwitches
+    cuesSwitch.isChecked = cues.enabled
+    shortSwitch.isChecked = cues.shortTier
+    midSwitch.isChecked = cues.midTier
+    longSwitch.isChecked = cues.longTier
+    beepSwitch.isChecked = cues.beepOnly
+    fun syncTiers() = tierSwitches.forEach { it.isEnabled = cuesSwitch.isChecked }
+    syncTiers()
+    cuesSwitch.setOnCheckedChangeListener { _, _ -> syncTiers() }
+
     fun complain(text: String) = Toast.makeText(activity, text, Toast.LENGTH_LONG).show()
 
     MaterialAlertDialogBuilder(activity)
@@ -82,6 +98,13 @@ fun showSettingsDialog(
             settings.smoothingSeconds = smoothing
             recoveryGroup.findViewById<View>(recoveryGroup.checkedRadioButtonId)
                 ?.let { settings.recoverySetting = it.tag as RecoverySetting }
+            settings.cueSettings = CueSettings(
+                enabled = cuesSwitch.isChecked,
+                shortTier = shortSwitch.isChecked,
+                midTier = midSwitch.isChecked,
+                longTier = longSwitch.isChecked,
+                beepOnly = beepSwitch.isChecked,
+            )
             Ride.current?.smoother?.windowSeconds = smoothing
             onSaved()
         }

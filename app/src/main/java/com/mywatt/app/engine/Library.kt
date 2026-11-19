@@ -69,7 +69,7 @@ data class LibrarySession(
                 is CoolDownStep -> CoolDown(step.seconds, w(step.percent))
                 is RepStep -> Rep(step.seconds, w(step.percent), step.cadenceRpm, step.bestWindowSeconds, step.kind, step.set)
                 is EasyStep -> Easy(step.seconds, w(step.percent))
-                GatedStep -> Recovery(HrGate(setting))
+                GatedStep -> Recovery(HrGate(setting, leadInSeconds = HrGate.DEFAULT_LEAD_IN_SECONDS))
                 is RampStep -> Ramp(step.startWatts, step.stepWatts, step.stepSeconds)
             }
         }

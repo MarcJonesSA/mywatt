@@ -109,6 +109,18 @@ data class SessionState(
     val setNumber: Int = 0,
     /** 1-based step of a ramp in progress; null outside a ramp. */
     val rampStep: Int? = null,
+    /**
+     * In a gated recovery, seconds until the next rep starts when that is known: during the
+     * lead-in after HR has come down, or counting to the fallback when there is no HR.
+     */
+    val releaseIn: Int? = null,
+    /** True during the lead-in after HR has come down. */
+    val recovered: Boolean = false,
+    /**
+     * In a gated recovery, how far HR has come down from the peak towards the gate HR:
+     * 0 at the peak, 1 at the gate. Null without a peak, a gate HR or a current HR.
+     */
+    val recoveryProgress: Double? = null,
 ) {
     companion object {
         /** The state before the first second is fed. */
@@ -230,6 +242,8 @@ class SessionRunner(val session: Session) {
     private var recoveryMissingHr = 0
     private var recoveryHrLost = false
     private var recoveryMinuteMarkHr: Int? = null
+    /** Seconds into the recovery at which it releases, once HR has come down; null before. */
+    private var recoveryReleaseAt: Int? = null
 
     /**
      * Feeds one second of the session clock. Call it once a second whether or not the bike
@@ -284,14 +298,35 @@ class SessionRunner(val session: Session) {
                 }
 
                 is Recovery -> {
+                    val due = recoveryReleaseAt
+                    if (due != null) {
+                        // HR is down; the lead-in runs on the clock.
+                        if (secondsIn >= due) {
+                            enterBlock(blockIndex + 1, blockStartSeconds + due)
+                            continue
+                        }
+                        ingestRecoverySecond(block.gate, secondsIn, hrBpm)
+                        break
+                    }
                     ingestRecoverySecond(block.gate, secondsIn, hrBpm)
                     val verdict = gateVerdict(block.gate, secondsIn)
-                    if (verdict != GateVerdict.CLOSED) {
-                        closeRecovery(secondsIn, timedOut = verdict == GateVerdict.TIMED_OUT)
-                        enterBlock(blockIndex + 1, elapsedSeconds)
-                        continue
+                    when (verdict) {
+                        GateVerdict.CLOSED -> break
+                        GateVerdict.RECOVERED -> {
+                            closeRecovery(secondsIn, timedOut = false)
+                            if (block.gate.leadInSeconds > 0) {
+                                recoveryReleaseAt = secondsIn + block.gate.leadInSeconds
+                                break
+                            }
+                            enterBlock(blockIndex + 1, elapsedSeconds)
+                            continue
+                        }
+                        GateVerdict.FALLBACK, GateVerdict.TIMED_OUT -> {
+                            closeRecovery(secondsIn, timedOut = verdict == GateVerdict.TIMED_OUT)
+                            enterBlock(blockIndex + 1, elapsedSeconds)
+                            continue
+                        }
                     }
-                    break
                 }
 
                 is Ramp -> {
@@ -351,6 +386,7 @@ class SessionRunner(val session: Session) {
                 recoveryMissingHr = 0
                 recoveryHrLost = false
                 recoveryMinuteMarkHr = null
+                recoveryReleaseAt = null
             }
             else -> Unit
         }
@@ -470,15 +506,19 @@ class SessionRunner(val session: Session) {
         if (updated != rep) reps[reps.lastIndex] = updated
     }
 
-    private enum class GateVerdict { CLOSED, OPEN, TIMED_OUT }
+    private enum class GateVerdict { CLOSED, RECOVERED, FALLBACK, TIMED_OUT }
+
+    /** No HR to judge by: the recovery runs to the gate's fallback length. */
+    private fun onFallback(): Boolean =
+        recoveryHrLost || recoveringRep()?.gateHr == null || recoveryLastHr == null
 
     private fun gateVerdict(gate: HrGate, sinceEnd: Int): GateVerdict {
         val threshold = recoveringRep()?.gateHr
         val hrNow = recoveryLastHr
         if (recoveryHrLost || threshold == null || hrNow == null) {
-            return if (sinceEnd >= gate.fallbackSeconds) GateVerdict.OPEN else GateVerdict.CLOSED
+            return if (sinceEnd >= gate.fallbackSeconds) GateVerdict.FALLBACK else GateVerdict.CLOSED
         }
-        if (sinceEnd >= gate.minSeconds && hrNow <= threshold) return GateVerdict.OPEN
+        if (sinceEnd >= gate.minSeconds && hrNow <= threshold) return GateVerdict.RECOVERED
         if (sinceEnd >= gate.maxSeconds) return GateVerdict.TIMED_OUT
         return GateVerdict.CLOSED
     }
@@ -541,6 +581,20 @@ class SessionRunner(val session: Session) {
         }
         val gateHr = if (block is Recovery && !recoveryHrLost) recoveringRep()?.gateHr else null
         val easyTarget = block.easyTarget(secondsIn)
+        val releaseAt = recoveryReleaseAt
+        val releaseIn = when {
+            block !is Recovery -> null
+            releaseAt != null -> releaseAt - secondsIn
+            onFallback() -> (block.gate.fallbackSeconds - secondsIn).coerceAtLeast(0)
+            else -> null
+        }
+        val peak = recoveringRep()?.peakHr
+        val hrNow = recoveryLastHr
+        val progress = if (block is Recovery && peak != null && gateHr != null && hrNow != null && peak > gateHr) {
+            ((peak - hrNow).toDouble() / (peak - gateHr)).coerceIn(0.0, 1.0)
+        } else {
+            null
+        }
 
         _state.value = SessionState(
             session = session,
@@ -563,6 +617,9 @@ class SessionRunner(val session: Session) {
             cadenceTarget = (block as? Rep)?.cadenceRpm,
             setNumber = (block as? Rep)?.set ?: 0,
             rampStep = if (block is Ramp) rampStepIndex + 1 else null,
+            releaseIn = releaseIn,
+            recovered = block is Recovery && releaseAt != null,
+            recoveryProgress = progress,
         )
     }
 
@@ -600,6 +657,11 @@ class SessionRunner(val session: Session) {
 
         is Recovery -> buildString {
             append("Recovery $repNumber/${session.repCount} · ")
+            val releaseAt = recoveryReleaseAt
+            if (releaseAt != null) {
+                append("Recovered · next rep in ${clock(releaseAt - secondsIn)}")
+                return@buildString
+            }
             append(if (phase == RecoveryPhase.BUILDING) "Building" else "Recovering")
             when {
                 recoveryHrLost -> append(" · no HR")

@@ -78,6 +78,14 @@
     <string name="session_ended">Session ended</string>
     <string name="session_paused">Paused</string>
     <string name="session_no_power">no power data</string>
+    <string name="cues_title">Audio cues</string>
+    <string name="cues_on">Spoken cues during sessions</string>
+    <string name="cues_short">Short reps (30 s or less): count-in and countdown</string>
+    <string name="cues_mid">1–5 min reps: halfway, 30 to go, countdown</string>
+    <string name="cues_long">Long reps and steady riding: every 5 min, 5 to go, 1 to go</string>
+    <string name="cues_beep_only">Beeps instead of a voice</string>
+    <string name="cues_mute">Mute</string>
+    <string name="cues_unmute">Unmute</string>
     <string name="session_target">Target %1$d W</string>
     <string name="session_easy">Easy riding</string>
     <string name="session_easy_target">Easy · %1$d W</string>

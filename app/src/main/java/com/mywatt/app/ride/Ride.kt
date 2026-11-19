@@ -12,7 +12,11 @@ import com.mywatt.app.data.PowerSmoother
 import com.mywatt.app.data.RideLog
 import com.mywatt.app.data.RiderSettings
 import com.mywatt.app.data.history.HistoryDatabase
+import com.mywatt.app.audio.CueSpeaker
+import com.mywatt.app.engine.CuePlanner
+import com.mywatt.app.engine.CueSettings
 import com.mywatt.app.engine.HeartRateRecovery
+import com.mywatt.app.engine.SessionController
 import com.mywatt.app.session.ActiveSession
 import com.mywatt.app.session.LiveReadout
 import kotlinx.coroutines.CoroutineScope
@@ -96,6 +100,31 @@ class Ride private constructor(context: Context) {
         )
     }
 
+    private var cueSpeaker: CueSpeaker? = null
+    private var cuePlanner: CuePlanner? = null
+    private var cueController: SessionController? = null
+    private var cueSettings = CueSettings()
+
+    /** Works out this second's cues for [controller]'s session and plays them unless muted. */
+    private fun speakCues(controller: SessionController) {
+        if (controller !== cueController) {
+            cueController = controller
+            cueSettings = RiderSettings(appContext).cueSettings
+            cuePlanner = CuePlanner(cueSettings)
+            // Made at the first session with cues on, so the voice is warm by the first cue.
+            if (cueSettings.enabled && cueSpeaker == null) cueSpeaker = CueSpeaker(appContext)
+        }
+        val planner = cuePlanner ?: return
+        val cues = planner.cues(controller.state.value)
+        if (!cueSettings.enabled || controller.ended || controller.paused.value) return
+        val speaker = cueSpeaker ?: return
+        if (ActiveSession.muted.value) {
+            speaker.stop()
+            return
+        }
+        speaker.play(cues, cueSettings.beepOnly)
+    }
+
     /**
      * The training session's clock: a 1 Hz wall-clock tick that runs for the life of the
      * ride whether or not the bike is connected or sending, so a session never freezes on
@@ -109,7 +138,10 @@ class Ride private constructor(context: Context) {
             while (isActive) {
                 val now = SystemClock.elapsedRealtime()
                 val r = readNow(now)
-                ActiveSession.controller.value?.tick(r.smoothed, r.hr?.bpm, r.gear?.gear, r.raw, r.cadence)
+                ActiveSession.controller.value?.let { controller ->
+                    controller.tick(r.smoothed, r.hr?.bpm, r.gear?.gear, r.raw, r.cadence)
+                    speakCues(controller)
+                }
                 ActiveSession.publishLive(
                     LiveReadout(r.smoothed, r.hr?.bpm, r.hr?.contactLost == true, r.gear, r.cadence)
                 )
@@ -266,6 +298,8 @@ class Ride private constructor(context: Context) {
     }
 
     private fun shutdown() {
+        cueSpeaker?.shutdown()
+        cueSpeaker = null
         stopRideLog()
         bluetooth.release()
         scope.cancel()

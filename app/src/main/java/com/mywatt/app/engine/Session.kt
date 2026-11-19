@@ -162,6 +162,12 @@ data class HrGate(
     val fallbackSeconds: Int = DEFAULT_FALLBACK_SECONDS,
     /** The setting's timeout unless overridden. */
     val maxSeconds: Int = setting.timeoutSeconds,
+    /**
+     * Once HR has come down, the next rep starts this many seconds later, so the rider
+     * hears "next rep in 10" and can get ready. Not on a timeout, which releases at once.
+     * 0 (release at once) unless set; the library sets [DEFAULT_LEAD_IN_SECONDS].
+     */
+    val leadInSeconds: Int = 0,
 ) {
     /** Share of the rise that must be recovered, from [setting]. */
     val recoveredFraction: Double get() = setting.releaseFraction
@@ -187,6 +193,7 @@ data class HrGate(
 
     companion object {
         const val DEFAULT_FALLBACK_SECONDS = 120
+        const val DEFAULT_LEAD_IN_SECONDS = 10
     }
 }
 
