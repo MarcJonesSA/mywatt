@@ -57,6 +57,13 @@
             android:layout_weight="1" />
 
         <!-- Centre: smoothed watts, large, with the target under it. -->
+        <!-- Dial mode: the rev counter takes the place of the big number. -->
+        <com.mywatt.app.ui.RevCounterView
+            android:id="@+id/revCounter"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/wattsValue"
             android:layout_width="match_parent"
@@ -89,6 +96,18 @@
             android:textColor="@color/text_primary"
             android:textSize="22sp"
             tools:text="Target 250 W" />
+
+        <TextView
+            android:id="@+id/cadenceLine"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_horizontal"
+            android:textColor="@color/text_primary"
+            android:textSize="20sp"
+            android:visibility="gone"
+            tools:text="Cadence 62 → 60 rpm"
+            tools:visibility="visible" />
 
         <TextView
             android:id="@+id/gearNag"

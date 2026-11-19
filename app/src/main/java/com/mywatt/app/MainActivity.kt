@@ -127,6 +127,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // A test result may have changed FTP while the session screen was on top.
+        binding.ftpButton.text = getString(R.string.ftp_button, settings.ftpWatts)
+        binding.revCounter.setFtp(settings.ftpWatts)
         binding.startSessionButton.setText(
             if (ActiveSession.isRunning) R.string.action_resume_session else R.string.action_start_session
         )

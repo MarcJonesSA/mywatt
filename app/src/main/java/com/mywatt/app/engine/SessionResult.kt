@@ -11,13 +11,44 @@ data class SessionResult(
     val completed: Boolean,
     /** The recovery setting the session's HR gates used. */
     val recoverySetting: RecoverySetting = RecoverySetting.DEFAULT,
+    /** Library id of the session, empty for one built by hand. */
+    val sessionId: String = "",
+    /** The FTP the session's targets were worked out from, if it was built from FTP. */
+    val ftpWatts: Int? = null,
+    /** Which FTP test this was, if any. */
+    val ftpTest: FtpTest? = null,
 ) {
+    /** For an FTP test, the estimate it produced; null otherwise or if the test fell short. */
+    val ftpEstimate: Int? get() = ftpTest?.estimate(reps)
+
     /** One line summing the session up, e.g. "All 3 reps on target · Recovery 60 / 65 / 72 s". */
-    val verdict: String get() = verdict(reps, completed)
+    val verdict: String get() = if (ftpTest != null) testVerdict(ftpTest, reps, completed) else verdict(reps, completed)
 
     companion object {
-        fun of(state: SessionState, completed: Boolean): SessionResult =
-            SessionResult(state.session.name, state.reps, completed, state.session.recoverySetting)
+        fun of(state: SessionState, completed: Boolean): SessionResult = SessionResult(
+            sessionName = state.session.name,
+            reps = state.reps,
+            completed = completed,
+            recoverySetting = state.session.recoverySetting,
+            sessionId = state.session.id,
+            ftpWatts = state.session.ftpWatts,
+            ftpTest = state.session.ftpTest,
+        )
+
+        /** The verdict for an FTP test: the estimate and what it was worked out from. */
+        fun testVerdict(test: FtpTest, reps: List<RepResult>, completed: Boolean): String {
+            val parts = ArrayList<String>()
+            val estimate = test.estimate(reps)
+            parts += if (estimate != null) "FTP estimate $estimate W" else "No FTP estimate"
+            reps.lastOrNull()?.let { last ->
+                parts += when (test) {
+                    FtpTest.RAMP -> "Last full step ${last.targetWatts} W"
+                    FtpTest.TWENTY_MINUTE -> "20 min average ${last.averageWatts} W"
+                }
+            }
+            if (!completed) parts += "Ended early"
+            return parts.joinToString(" · ")
+        }
 
         /**
          * The verdict text: how many reps were on target (green), the recovery times in

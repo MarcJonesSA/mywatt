@@ -18,10 +18,13 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.mywatt.app.R
+import com.mywatt.app.data.RiderSettings
 import com.mywatt.app.databinding.ActivitySessionBinding
 import com.mywatt.app.engine.Band
 import com.mywatt.app.engine.Recovery
+import com.mywatt.app.engine.ScreenMode
 import com.mywatt.app.engine.RecoveryPhase
 import com.mywatt.app.engine.SessionController
 import com.mywatt.app.engine.SessionResult
@@ -43,6 +46,9 @@ class SessionActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySessionBinding
     private lateinit var controller: SessionController
 
+    /** Dial sessions lead with the rev counter, NumberFirst ones with the big watts number. */
+    private val dialMode: Boolean get() = controller.session.screenMode == ScreenMode.Dial
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val active = ActiveSession.controller.value
@@ -56,6 +62,13 @@ class SessionActivity : AppCompatActivity() {
         setContentView(binding.root)
         binding.root.padForSystemBars()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        if (dialMode) {
+            binding.revCounter.setFtp(controller.session.ftpWatts ?: RiderSettings(this).ftpWatts)
+            binding.revCounter.visibility = View.VISIBLE
+            binding.wattsValue.visibility = View.GONE
+            binding.wattsUnit.visibility = View.GONE
+        }
 
         binding.pauseButton.setOnClickListener { controller.togglePause() }
         binding.endButton.setOnClickListener { controller.end() }
@@ -99,10 +112,17 @@ class SessionActivity : AppCompatActivity() {
         val inRecovery = block is Recovery
 
         binding.blockTitle.text = block?.label ?: getString(R.string.session_complete)
-        binding.repLine.text = if (state.repNumber > 0) {
-            getString(R.string.session_rep_of, state.repNumber, state.session.repCount)
-        } else {
-            state.session.name
+        binding.repLine.text = when {
+            state.rampStep != null && state.targetWatts != null ->
+                getString(R.string.session_ramp_step, state.rampStep, state.targetWatts)
+            state.repNumber > 0 && state.setNumber > 0 ->
+                getString(
+                    R.string.session_set_rep_of,
+                    state.setNumber, state.session.setCount, state.repNumber, state.session.repCount,
+                )
+            state.repNumber > 0 && state.session.repCount > 0 ->
+                getString(R.string.session_rep_of, state.repNumber, state.session.repCount)
+            else -> state.session.name
         }
         binding.statusLine.text = when {
             paused -> getString(R.string.session_paused)
@@ -111,9 +131,23 @@ class SessionActivity : AppCompatActivity() {
         }
 
         binding.wattsValue.text = live?.smoothedWatts?.toString() ?: getString(R.string.no_reading)
-        binding.targetValue.text = state.targetWatts
-            ?.let { getString(R.string.session_target, it) }
-            ?: getString(R.string.session_easy)
+        if (dialMode) binding.revCounter.setPower(live?.smoothedWatts)
+        binding.targetValue.text = when {
+            state.targetWatts != null -> getString(R.string.session_target, state.targetWatts)
+            state.easyTargetWatts != null -> getString(R.string.session_easy_target, state.easyTargetWatts)
+            else -> getString(R.string.session_easy)
+        }
+        val cadenceTarget = state.cadenceTarget
+        if (cadenceTarget != null) {
+            binding.cadenceLine.text = getString(
+                R.string.session_cadence,
+                live?.cadenceRpm?.toString() ?: getString(R.string.no_reading),
+                cadenceTarget,
+            )
+            binding.cadenceLine.visibility = View.VISIBLE
+        } else {
+            binding.cadenceLine.visibility = View.GONE
+        }
         binding.targetValue.setTextColor(
             ContextCompat.getColor(this, if (inRep) R.color.text_primary else R.color.text_secondary)
         )
@@ -177,6 +211,7 @@ class SessionActivity : AppCompatActivity() {
         binding.resultsTitle.setText(if (result.completed) R.string.session_complete else R.string.session_ended)
         binding.verdictText.text = result.verdict + System.lineSeparator() +
             getString(R.string.results_recovery_setting, result.recoverySetting.label)
+        result.ftpEstimate?.let { offerFtp(it) }
 
         val table = binding.resultsTable
         table.removeAllViews()
@@ -205,6 +240,25 @@ class SessionActivity : AppCompatActivity() {
                 )
             )
         }
+    }
+
+    /** Asks once whether to save an FTP test's estimate as the rider's FTP. */
+    private fun offerFtp(estimate: Int) {
+        if (ActiveSession.ftpOfferAnswered) return
+        if (estimate !in RiderSettings.MIN_FTP..RiderSettings.MAX_FTP) return
+        val settings = RiderSettings(this)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.ftp_offer_title, estimate))
+            .setMessage(getString(R.string.ftp_offer_message, estimate, settings.ftpWatts))
+            .setNegativeButton(getString(R.string.ftp_offer_keep, settings.ftpWatts)) { _, _ ->
+                ActiveSession.ftpOfferAnswered = true
+            }
+            .setPositiveButton(R.string.ftp_offer_save) { _, _ ->
+                ActiveSession.ftpOfferAnswered = true
+                settings.ftpWatts = estimate
+                Toast.makeText(this, getString(R.string.ftp_saved, estimate), Toast.LENGTH_SHORT).show()
+            }
+            .show()
     }
 
     private fun row(cells: List<TextView>): TableRow = TableRow(this).also { row ->

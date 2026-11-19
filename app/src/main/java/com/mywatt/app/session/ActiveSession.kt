@@ -13,6 +13,7 @@ data class LiveReadout(
     val hrBpm: Int?,
     val hrContactLost: Boolean,
     val gear: GearReading?,
+    val cadenceRpm: Int? = null,
 )
 
 /**
@@ -35,8 +36,12 @@ object ActiveSession {
     /** True while a session is running or paused, false once it has ended or been cleared. */
     val isRunning: Boolean get() = _controller.value?.let { !it.ended } == true
 
+    /** Set once the rider has answered the offer to save an FTP test's estimate, so it is asked once. */
+    var ftpOfferAnswered = false
+
     fun start(session: Session): SessionController {
         val controller = SessionController(session)
+        ftpOfferAnswered = false
         _controller.value = controller
         return controller
     }

@@ -165,9 +165,9 @@ class Ride private constructor(context: Context) {
                 // The training session, if one is running, is driven from this same loop
                 // and the row records which block it is in.
                 val controller = ActiveSession.controller.value
-                controller?.tick(smoothed, hr?.bpm, gear?.gear)
+                controller?.tick(smoothed, hr?.bpm, gear?.gear, raw, cadence)
                 val session = controller?.takeIf { !it.ended }?.state?.value
-                ActiveSession.publishLive(LiveReadout(smoothed, hr?.bpm, hr?.contactLost == true, gear))
+                ActiveSession.publishLive(LiveReadout(smoothed, hr?.bpm, hr?.contactLost == true, gear, cadence))
                 withContext(Dispatchers.IO) {
                     runCatching {
                         log.append(

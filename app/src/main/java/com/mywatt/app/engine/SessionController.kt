@@ -32,10 +32,16 @@ class SessionController(val session: Session) {
 
     val ended: Boolean get() = _result.value != null
 
-    /** Feeds one second of ride data, unless paused or ended. */
-    fun tick(smoothedWatts: Int?, hrBpm: Int?, gear: Int?) {
+    /** Feeds one second of ride data, unless paused or ended. See [SessionRunner.onSecond]. */
+    fun tick(
+        smoothedWatts: Int?,
+        hrBpm: Int?,
+        gear: Int?,
+        rawWatts: Int? = smoothedWatts,
+        cadenceRpm: Int? = null,
+    ) {
         if (ended || _paused.value) return
-        runner.onSecond(nextSecond++, smoothedWatts, hrBpm, gear)
+        runner.onSecond(nextSecond++, smoothedWatts, hrBpm, gear, rawWatts, cadenceRpm)
         if (runner.state.value.finished) {
             _result.value = SessionResult.of(runner.state.value, completed = true)
         }
