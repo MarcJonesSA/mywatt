@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Landscape ride screen: the dial on the left at full height, the readouts on the right,
-     the session and connect buttons along the bottom. Same view ids as portrait. -->
+<!-- Landscape ride screen: one title-and-status row across the top, the dial on the left at
+     full height below it, the readouts on the right, the session and connect buttons along
+     the bottom. Same view ids as portrait. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -14,86 +15,105 @@
     android:paddingBottom="8dp"
     tools:context=".MainActivity">
 
-    <!-- Title bar: app name on the left, share and FTP entry on the right. -->
-    <LinearLayout
+    <!-- One row across the full width: "MyWatt · status" centred, history, share and FTP
+         on the right. The centre block keeps clear of the buttons by the same margin on
+         both sides, so it stays centred on the screen. -->
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_height="wrap_content">
 
-        <TextView
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:fontFamily="sans-serif-medium"
-            android:letterSpacing="0.04"
-            android:text="@string/app_name"
-            android:textColor="@color/text_primary"
-            android:textSize="24sp" />
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="@dimen/land_title_side"
+            android:layout_marginEnd="@dimen/land_title_side"
+            android:gravity="center"
+            android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/historyButton"
-            style="@style/Widget.Material3.Button.IconButton"
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.04"
+                android:text="@string/app_name"
+                android:textColor="@color/text_primary"
+                android:textSize="22sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:text="·"
+                android:textColor="@color/text_secondary"
+                android:textSize="22sp"
+                tools:ignore="HardcodedText" />
+
+            <View
+                android:id="@+id/statusDot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:background="@drawable/bg_status_dot"
+                android:backgroundTint="@color/status_idle" />
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/status_idle"
+                android:textColor="@color/text_secondary"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:contentDescription="@string/action_history"
-            app:icon="@android:drawable/ic_menu_recent_history"
-            app:iconTint="@color/text_primary" />
+            android:layout_gravity="end|center_vertical"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/shareButton"
-            style="@style/Widget.Material3.Button.IconButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="4dp"
-            android:contentDescription="@string/action_share_log"
-            app:icon="@android:drawable/ic_menu_share"
-            app:iconTint="@color/text_primary" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/historyButton"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/action_history"
+                app:icon="@android:drawable/ic_menu_recent_history"
+                app:iconTint="@color/text_primary" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/ftpButton"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minHeight="40dp"
-            android:textColor="@color/text_primary"
-            app:backgroundTint="@color/surface_variant"
-            tools:text="FTP 220 W" />
-    </LinearLayout>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/shareButton"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="@string/action_share_log"
+                app:icon="@android:drawable/ic_menu_share"
+                app:iconTint="@color/text_primary" />
 
-    <!-- Connection status. -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <View
-            android:id="@+id/statusDot"
-            android:layout_width="10dp"
-            android:layout_height="10dp"
-            android:background="@drawable/bg_status_dot"
-            android:backgroundTint="@color/status_idle" />
-
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/status_idle"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp" />
-    </LinearLayout>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/ftpButton"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="40dp"
+                android:textColor="@color/text_primary"
+                app:backgroundTint="@color/surface_variant"
+                tools:text="FTP 220 W" />
+        </LinearLayout>
+    </FrameLayout>
 
     <!-- Advice shown under the status when a scan finds no bike at all. -->
     <TextView
         android:id="@+id/statusHint"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="18dp"
         android:layout_marginTop="2dp"
+        android:gravity="center"
         android:textColor="@color/text_secondary"
         android:textSize="13sp"
         android:visibility="gone"
@@ -107,7 +127,8 @@
         android:layout_weight="1"
         android:orientation="horizontal">
 
-        <!-- The rev counter, sized to the height it is given. -->
+        <!-- The rev counter, as large as the left column allows; the watts number is drawn
+             under its hub. -->
         <com.mywatt.app.ui.RevCounterView
             android:id="@+id/revCounter"
             android:layout_width="0dp"
