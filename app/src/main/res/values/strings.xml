@@ -51,6 +51,9 @@
     <string name="smoothing_hint">Power smoothing</string>
     <string name="recovery_setting_title">Recovery between reps</string>
     <string name="recovery_setting_option">%1$s · %2$d%% of the HR rise · at least %3$d s</string>
+    <string name="recovery_setting_row">%1$s — %2$s</string>
+    <string name="recovery_setting_info">The next rep starts once your heart rate has come down %1$d%% of the way from its peak back to where it was before the rep, and not before %2$d s. If it has not come down after %3$d s, the next rep starts anyway.</string>
+    <string name="recovery_setting_info_more">About %1$s</string>
     <string name="results_recovery_setting">Recovery setting: %1$s</string>
     <string name="smoothing_invalid">Enter a smoothing window between %1$d and %2$d seconds</string>
 

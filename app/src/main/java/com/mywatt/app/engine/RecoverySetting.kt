@@ -15,11 +15,13 @@ enum class RecoverySetting(
     val releaseFraction: Double,
     val minRecoverySeconds: Int,
     val timeoutSeconds: Int,
+    /** One line in rider language for the settings screen; the numbers sit behind an (i). */
+    val blurb: String,
 ) {
-    Building("Building", 0.50, 60, 240),
-    Intermediate("Intermediate", 0.60, 45, 240),
-    Trained("Trained", 0.70, 30, 240),
-    Peak("Peak", 0.80, 30, 240);
+    Building("Building", 0.50, 60, 240, "Fullest recoveries. Your first weeks back."),
+    Intermediate("Intermediate", 0.60, 45, 240, "Solid recoveries. Training regularly."),
+    Trained("Trained", 0.70, 30, 240, "Shorter recoveries. Fit and consistent."),
+    Peak("Peak", 0.80, 30, 240, "Race-tight recoveries. Peak weeks only.");
 
     companion object {
         val DEFAULT = Building

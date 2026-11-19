@@ -3,7 +3,10 @@ package com.mywatt.app.ui
 import android.app.Activity
 import android.content.Intent
 import android.view.View
-import android.widget.RadioGroup
+import android.view.Gravity
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.core.content.ContextCompat
 import android.widget.Toast
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.radiobutton.MaterialRadioButton
@@ -36,21 +39,52 @@ fun showSettingsDialog(
     input.setSelection(input.text?.length ?: 0)
     val smoothingInput = view.findViewById<TextInputEditText>(R.id.smoothingInput)
     smoothingInput.setText(settings.smoothingSeconds.toString())
-    val recoveryGroup = view.findViewById<RadioGroup>(R.id.recoverySettingGroup)
-    RecoverySetting.entries.forEach { setting ->
+    // One row per setting in rider language, with the numbers behind an (i). The rows hold
+    // more than a radio button, so the one-of-four choice is kept by hand, not by a RadioGroup.
+    val recoveryGroup = view.findViewById<LinearLayout>(R.id.recoverySettingGroup)
+    val density = activity.resources.displayMetrics.density
+    val radios = RecoverySetting.entries.map { setting ->
+        val radio = MaterialRadioButton(activity).apply {
+            tag = setting
+            text = activity.getString(R.string.recovery_setting_row, setting.label, setting.blurb)
+            isChecked = setting == settings.recoverySetting
+        }
+        val info = TextView(activity).apply {
+            text = "ⓘ"
+            textSize = 20f
+            setTextColor(ContextCompat.getColor(activity, R.color.accent))
+            val pad = (12 * density).toInt()
+            setPadding(pad, pad / 2, pad, pad / 2)
+            contentDescription = activity.getString(R.string.recovery_setting_info_more, setting.label)
+            setOnClickListener {
+                MaterialAlertDialogBuilder(activity)
+                    .setTitle(setting.label)
+                    .setMessage(
+                        activity.getString(
+                            R.string.recovery_setting_info,
+                            (setting.releaseFraction * 100).roundToInt(),
+                            setting.minRecoverySeconds,
+                            setting.timeoutSeconds,
+                        )
+                    )
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            }
+        }
         recoveryGroup.addView(
-            MaterialRadioButton(activity).apply {
-                id = View.generateViewId()
-                tag = setting
-                text = activity.getString(
-                    R.string.recovery_setting_option,
-                    setting.label,
-                    (setting.releaseFraction * 100).roundToInt(),
-                    setting.minRecoverySeconds,
-                )
-                isChecked = setting == settings.recoverySetting
+            LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(radio, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(info)
             }
         )
+        radio
+    }
+    radios.forEach { radio ->
+        radio.setOnCheckedChangeListener { button, checked ->
+            if (checked) radios.filter { it !== button }.forEach { it.isChecked = false }
+        }
     }
 
     val cues = settings.cueSettings
@@ -98,8 +132,7 @@ fun showSettingsDialog(
             }
             settings.ftpWatts = entered
             settings.smoothingSeconds = smoothing
-            recoveryGroup.findViewById<View>(recoveryGroup.checkedRadioButtonId)
-                ?.let { settings.recoverySetting = it.tag as RecoverySetting }
+            radios.firstOrNull { it.isChecked }?.let { settings.recoverySetting = it.tag as RecoverySetting }
             settings.cueSettings = CueSettings(
                 enabled = cuesSwitch.isChecked,
                 shortTier = shortSwitch.isChecked,

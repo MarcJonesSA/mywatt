@@ -104,4 +104,18 @@ class RecoverySettingTest {
             Session.threeByOne(250, RecoverySetting.Trained).blocks.filterIsInstance<Recovery>().map { it.gate }.toSet(),
         )
     }
+
+    @Test
+    fun `settings rows read in rider language`() {
+        assertEquals(
+            listOf(
+                "Fullest recoveries. Your first weeks back.",
+                "Solid recoveries. Training regularly.",
+                "Shorter recoveries. Fit and consistent.",
+                "Race-tight recoveries. Peak weeks only.",
+            ),
+            RecoverySetting.entries.map { it.blurb },
+        )
+        RecoverySetting.entries.forEach { assertFalse(it.blurb.contains('%')) }
+    }
 }
